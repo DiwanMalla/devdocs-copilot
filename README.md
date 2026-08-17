@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevDocs Copilot
 
-## Getting Started
+Turns a public GitHub repository into a browsable, semantically searchable
+source library. Phase 2 chunks source files and stores OpenAI
+`text-embedding-3-small` vectors through OpenRouter in Supabase pgvector.
 
-First, run the development server:
+## Setup
+
+1. Create a [Supabase](https://supabase.com) project.
+2. In the SQL editor, run these migrations in order:
+   - [`supabase/migrations/001_repos_and_files.sql`](supabase/migrations/001_repos_and_files.sql)
+   - [`supabase/migrations/002_chunks_and_vector_search.sql`](supabase/migrations/002_chunks_and_vector_search.sql)
+3. Copy env vars:
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only; used to write ingested files)
+- `GITHUB_TOKEN` (optional, but recommended — unauthenticated GitHub access is 60 requests/hour)
+- `OPENROUTER_API_KEY` (required for indexing and semantic search)
+
+4. Start the app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How to test Phase 2
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Paste a **small public repo**, such as `octocat/Hello-World` or `sindresorhus/is`.
+2. Wait for ingest and embedding generation to finish. You should land on `/repos/{owner}/{name}`.
+3. Confirm:
+   - Status badge is `ready`
+   - File count is greater than 0
+   - Chunk count is greater than 0
+   - The left tree lists source files
+   - Clicking a file shows its contents
+4. Search using a concept rather than an exact identifier, such as “where are
+   errors handled?” Results should include paths, line ranges, and similarity
+   scores.
+5. Click a result and confirm the corresponding file opens.
+6. Ingest the same URL again. Stored files and chunks should be replaced, not
+   duplicated.
+7. Try an invalid URL and a private/missing repo. You should see a clear error
+   on the home page.
 
-## Learn More
+Avoid huge repos for the first test (`vercel/next.js` will hit the 250-file cap and many GitHub API calls).
 
-To learn more about Next.js, take a look at the following resources:
+## What is implemented
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Parses `https://github.com/owner/repo` or `owner/repo`
+- Fetches the default-branch tree and blob contents from the GitHub REST API
+- Skips binaries, vendor folders, lockfiles, and files over 200KB
+- Stores at most 250 files in Postgres
+- Lets you browse the ingested snapshot
+- Splits source into overlapping, line-aware chunks
+- Generates 1,536-dimensional embeddings through OpenRouter
+- Stores vectors in Supabase pgvector with an HNSW cosine index
+- Performs repository-scoped semantic similarity search
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Next (not built)
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Phase 3: chat with source citations
+- Phase 4: jump from a citation to the matching line
