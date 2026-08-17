@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FileTree } from "@/components/file-tree";
-import { FileViewer } from "@/components/file-viewer";
+import { FileViewer, type LineRange } from "@/components/file-viewer";
 import { RepoChat } from "@/components/repo-chat";
 import { SemanticSearch } from "@/components/semantic-search";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,39 @@ function statusVariant(status: RepoStatus) {
   if (status === "ready") return "default" as const;
   if (status === "failed") return "destructive" as const;
   return "secondary" as const;
+}
+
+function parseLineRange(value: unknown): LineRange | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = value.match(/^(\d+)-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const start = Number.parseInt(match[1] ?? "", 10);
+  const end = Number.parseInt(match[2] ?? "", 10);
+  if (start < 1 || end < start || end - start > 500) {
+    return null;
+  }
+
+  return { start, end };
+}
+
+function buildGitHubFileUrl(
+  repoUrl: string,
+  ref: string,
+  path: string,
+  lines: LineRange | null,
+): string {
+  const encodedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const lineHash = lines ? `#L${lines.start}-L${lines.end}` : "";
+  return `${repoUrl}/blob/${encodeURIComponent(ref)}/${encodedPath}${lineHash}`;
 }
 
 async function getSearchOutcome(
@@ -55,6 +88,7 @@ export default async function RepoPage({
   const query = await searchParams;
   const selectedPath = typeof query.path === "string" ? query.path : null;
   const searchQuery = typeof query.q === "string" ? query.q.trim() : "";
+  const requestedLines = parseLineRange(query.lines);
 
   const repo = await getRepoByOwnerName(
     decodeURIComponent(owner),
@@ -81,6 +115,19 @@ export default async function RepoPage({
       ? await getRepoFileByPath(repo.id, defaultFilePath)
       : null);
   const activePath = selectedFile?.path ?? fileToShow?.path ?? null;
+  const fileLineCount = fileToShow?.content.split("\n").length ?? 0;
+  const highlightedLines =
+    requestedLines && requestedLines.end <= fileLineCount
+      ? requestedLines
+      : null;
+  const githubFileUrl = fileToShow
+    ? buildGitHubFileUrl(
+        repo.html_url,
+        repo.commit_sha ?? repo.default_branch,
+        fileToShow.path,
+        highlightedLines,
+      )
+    : null;
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6">
@@ -149,6 +196,8 @@ export default async function RepoPage({
         <div className="h-full min-h-0 overflow-hidden">
           <FileViewer
             file={fileToShow}
+            highlightedLines={highlightedLines}
+            githubUrl={githubFileUrl}
             emptyMessage={
               selectedPath && !selectedFile
                 ? "That file is not in the ingested snapshot."

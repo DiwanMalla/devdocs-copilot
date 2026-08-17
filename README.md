@@ -49,11 +49,14 @@ Open [http://localhost:3000](http://localhost:3000).
 5. Click a result and confirm the corresponding file opens.
 6. Ask a repository question in the chat. The answer should contain exact
    `[path:Lstart-Lend]` citations from retrieved chunks.
-7. Ask about something absent from the repository. The assistant should report
+7. Click a citation. The matching file should open, scroll to the cited range,
+   and highlight those lines. The external-link button opens the same range on
+   GitHub.
+8. Ask about something absent from the repository. The assistant should report
    that it could not find enough evidence instead of inventing an answer.
-8. Ingest the same URL again. Stored files and chunks should be replaced, not
+9. Ingest the same URL again. Stored files and chunks should be replaced, not
    duplicated.
-9. Try an invalid URL and a private/missing repo. You should see a clear error
+10. Try an invalid URL and a private/missing repo. You should see a clear error
    on the home page.
 
 Avoid huge repos for the first test (`vercel/next.js` will hit the 250-file cap and many GitHub API calls).
@@ -72,7 +75,12 @@ Avoid huge repos for the first test (`vercel/next.js` will hit the 250-file cap 
 - Answers repository questions with `openai/gpt-oss-20b:free`
 - Restricts answers to retrieved context and normalizes citations to exact
   stored file/line ranges
+- Makes chat citations and semantic-search results navigate to highlighted
+  source ranges
+- Links highlighted ranges to the exact GitHub commit
 
-## Next (not built)
+## Possible next improvements
 
-- Phase 4: jump from a citation to the matching line
+- Persist chat history
+- Add authentication and usage limits
+- Support private repositories

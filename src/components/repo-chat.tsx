@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import Link from "next/link";
 import {
   Loader2Icon,
   SendIcon,
@@ -19,6 +20,51 @@ function messageText(message: UIMessage): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n");
+}
+
+const CITATION_PATTERN = /\[([^\]\n]+):L(\d+)-L(\d+)\]/g;
+
+function renderAnswerWithCitationLinks(
+  text: string,
+  owner: string,
+  name: string,
+) {
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(CITATION_PATTERN)) {
+    const index = match.index;
+    const [citation, path, start, end] = match;
+    if (index === undefined || !path || !start || !end) {
+      continue;
+    }
+
+    if (index > cursor) {
+      parts.push(text.slice(cursor, index));
+    }
+
+    const href =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
+      `?path=${encodeURIComponent(path)}&lines=${start}-${end}#L${start}`;
+
+    parts.push(
+      <Link
+        key={`${index}-${citation}`}
+        href={href}
+        className="bg-background/70 text-foreground inline-flex rounded px-1.5 py-0.5 font-mono text-xs underline decoration-border underline-offset-2 hover:decoration-foreground"
+        title={`Open ${path}, lines ${start}–${end}`}
+      >
+        {citation}
+      </Link>,
+    );
+    cursor = index + citation.length;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts.length > 0 ? parts : text;
 }
 
 export function RepoChat({
@@ -108,7 +154,9 @@ export function RepoChat({
                     : "bg-muted",
                 )}
               >
-                {text}
+                {message.role === "assistant"
+                  ? renderAnswerWithCitationLinks(text, owner, name)
+                  : text}
               </div>
             );
           })

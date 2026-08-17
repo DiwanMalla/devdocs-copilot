@@ -8,7 +8,7 @@ export function SiteHeader() {
           DevDocs Copilot
         </Link>
         <p className="text-muted-foreground hidden text-sm sm:block">
-          Phase 3 · grounded repository chat
+          Phase 4 · navigable source citations
         </p>
       </div>
     </header>

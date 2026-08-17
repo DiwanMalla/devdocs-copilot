@@ -54,7 +54,12 @@ export function SemanticSearch({
             results.map((result) => (
               <Link
                 key={result.chunk_id}
-                href={`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}?path=${encodeURIComponent(result.path)}`}
+                href={
+                  `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
+                  `?path=${encodeURIComponent(result.path)}` +
+                  `&lines=${result.start_line}-${result.end_line}` +
+                  `#L${result.start_line}`
+                }
                 className="bg-card hover:bg-muted/60 rounded-lg p-3 ring-1 ring-foreground/10 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
