@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ExternalLinkIcon } from "lucide-react";
+import { ScrollToLine } from "@/components/scroll-to-line";
 import type { RepoFile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 
@@ -13,11 +14,13 @@ export function FileViewer({
   emptyMessage,
   highlightedLines,
   githubUrl,
+  lineRangeWarning,
 }: {
   file: RepoFile | null;
   emptyMessage: string;
   highlightedLines: LineRange | null;
   githubUrl: string | null;
+  lineRangeWarning?: string | null;
 }) {
   if (!file) {
     return (
@@ -37,6 +40,11 @@ export function FileViewer({
           {highlightedLines ? (
             <p className="text-xs font-medium">
               Lines {highlightedLines.start}–{highlightedLines.end}
+            </p>
+          ) : null}
+          {lineRangeWarning ? (
+            <p className="text-destructive text-xs" role="status">
+              {lineRangeWarning}
             </p>
           ) : null}
           <p className="text-muted-foreground text-xs">
@@ -74,6 +82,9 @@ export function FileViewer({
                   isHighlighted && "bg-amber-500/15",
                 )}
               >
+                {highlightedLines?.start === lineNumber ? (
+                  <ScrollToLine line={lineNumber} />
+                ) : null}
                 <span
                   className={cn(
                     "text-muted-foreground sticky left-0 pr-4 text-right select-none",

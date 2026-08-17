@@ -1,0 +1,20 @@
+export const MAX_QUESTION_CHARACTERS = 2_000;
+export const MAX_RETRIEVAL_QUERY_CHARACTERS = 2_000;
+export const MAX_CONTEXT_MESSAGES = 12;
+export const MAX_CONTEXT_CHARACTERS = 12_000;
+export const MAX_OUTPUT_TOKENS = 2_000;
+export const MAX_HISTORY_PAGE = 80;
+
+export const VECTOR_CANDIDATE_COUNT = 24;
+export const LEXICAL_CANDIDATE_COUNT = 24;
+export const FINAL_CHUNK_LIMIT = 8;
+export const MAX_CHUNKS_PER_FILE = 2;
+export const VECTOR_MATCH_THRESHOLD = 0.2;
+export const MIN_HYBRID_SCORE = 0.18;
+
+export const CHAT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+export const CHAT_RATE_LIMIT_MAX_REQUESTS = 60;
+
+export const STALE_GENERATION_MS = 90_000;
+export const INGEST_LOCK_MS = 15 * 60 * 1000;
+export const SNAPSHOT_RETENTION = 3;

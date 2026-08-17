@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chunkSource } from "./chunking";
 import { embedTexts } from "./embeddings";
@@ -15,6 +13,7 @@ export type IndexableFile = {
 type PendingChunk = {
   repo_id: string;
   file_id: string;
+  snapshot_id: string;
   chunk_index: number;
   start_line: number;
   end_line: number;
@@ -24,6 +23,7 @@ type PendingChunk = {
 
 export async function indexRepoFiles(
   repoId: string,
+  snapshotId: string,
   files: IndexableFile[],
 ): Promise<number> {
   const admin = createAdminClient();
@@ -31,6 +31,7 @@ export async function indexRepoFiles(
     chunkSource(file.content).map((chunk) => ({
       repo_id: repoId,
       file_id: file.id,
+      snapshot_id: snapshotId,
       chunk_index: chunk.chunkIndex,
       start_line: chunk.startLine,
       end_line: chunk.endLine,
@@ -61,6 +62,7 @@ export async function indexRepoFiles(
       .map((chunk, index) => ({
         repo_id: chunk.repo_id,
         file_id: chunk.file_id,
+        snapshot_id: chunk.snapshot_id,
         chunk_index: chunk.chunk_index,
         start_line: chunk.start_line,
         end_line: chunk.end_line,

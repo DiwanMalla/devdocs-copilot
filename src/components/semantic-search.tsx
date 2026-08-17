@@ -3,6 +3,7 @@ import { SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SemanticSearchResult } from "@/lib/ai/search";
+import { buildRepoWorkspaceHref } from "@/lib/repo/href";
 
 export function SemanticSearch({
   owner,
@@ -11,6 +12,8 @@ export function SemanticSearch({
   results,
   error,
   disabled,
+  chatId,
+  path,
 }: {
   owner: string;
   name: string;
@@ -18,14 +21,18 @@ export function SemanticSearch({
   results: SemanticSearchResult[];
   error: string | null;
   disabled: boolean;
+  chatId?: string | null;
+  path?: string | null;
 }) {
   return (
     <section className="space-y-3">
       <form method="get" className="flex gap-2">
+        {chatId ? <input type="hidden" name="chat" value={chatId} /> : null}
+        {path ? <input type="hidden" name="path" value={path} /> : null}
         <Input
           name="q"
           defaultValue={query}
-          maxLength={500}
+          maxLength={2_000}
           placeholder="Search by meaning, e.g. where is authentication handled?"
           aria-label="Semantic code search"
           disabled={disabled}
@@ -54,12 +61,17 @@ export function SemanticSearch({
             results.map((result) => (
               <Link
                 key={result.chunk_id}
-                href={
-                  `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
-                  `?path=${encodeURIComponent(result.path)}` +
-                  `&lines=${result.start_line}-${result.end_line}` +
-                  `#L${result.start_line}`
-                }
+                href={buildRepoWorkspaceHref({
+                  owner,
+                  name,
+                  path: result.path,
+                  lines: {
+                    start: result.start_line,
+                    end: result.end_line,
+                  },
+                  chatId,
+                  query,
+                })}
                 className="bg-card hover:bg-muted/60 rounded-lg p-3 ring-1 ring-foreground/10 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">

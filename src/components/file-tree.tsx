@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FileIcon, FolderIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { buildRepoWorkspaceHref } from "@/lib/repo/href";
 import { cn } from "@/lib/utils";
 import type { RepoFileMeta } from "@/lib/supabase/types";
 
@@ -68,18 +69,31 @@ function TreeItems({
   owner,
   name,
   selectedPath,
+  chatId,
+  query,
+  snapshotId,
   depth,
 }: {
   nodes: TreeNode[];
   owner: string;
   name: string;
   selectedPath: string | null;
+  chatId: string | null;
+  query: string | null;
+  snapshotId: string | null;
   depth: number;
 }) {
   return (
     <ul className="space-y-0.5">
       {nodes.map((node) => {
-        const href = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}?path=${encodeURIComponent(node.path)}`;
+        const href = buildRepoWorkspaceHref({
+          owner,
+          name,
+          path: node.path,
+          chatId,
+          query,
+          snapshotId,
+        });
         const isSelected = node.type === "file" && node.path === selectedPath;
 
         return (
@@ -98,12 +112,16 @@ function TreeItems({
                   owner={owner}
                   name={name}
                   selectedPath={selectedPath}
+                  chatId={chatId}
+                  query={query}
+                  snapshotId={snapshotId}
                   depth={depth + 1}
                 />
               </div>
             ) : (
               <Link
                 href={href}
+                aria-current={isSelected ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
                   isSelected
@@ -128,11 +146,17 @@ export function FileTree({
   owner,
   name,
   selectedPath,
+  chatId,
+  query,
+  snapshotId,
 }: {
   files: RepoFileMeta[];
   owner: string;
   name: string;
   selectedPath: string | null;
+  chatId?: string | null;
+  query?: string | null;
+  snapshotId?: string | null;
 }) {
   const tree = buildFileTree(files);
 
@@ -152,6 +176,9 @@ export function FileTree({
           owner={owner}
           name={name}
           selectedPath={selectedPath}
+          chatId={chatId ?? null}
+          query={query ?? null}
+          snapshotId={snapshotId ?? null}
           depth={0}
         />
       </nav>

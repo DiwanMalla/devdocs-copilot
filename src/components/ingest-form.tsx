@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { ingestRepo, type IngestState } from "@/app/actions/ingest";
+import { ingestRepo, type IngestState } from "@/app/actions/repositories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +39,7 @@ export function IngestForm() {
             Ingesting and indexing…
           </>
         ) : (
-          "Ingest repository"
+          "Add repository"
         )}
       </Button>
       <p className="text-muted-foreground text-xs leading-5">

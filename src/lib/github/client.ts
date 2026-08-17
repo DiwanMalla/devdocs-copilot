@@ -57,11 +57,33 @@ function githubHeaders(): HeadersInit {
   return headers;
 }
 
+async function fetchWithRetry(url: string): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const response = await fetch(url, {
+      headers: githubHeaders(),
+      cache: "no-store",
+    });
+
+    if (response.status !== 429 && response.status < 500) {
+      return response;
+    }
+
+    lastError = new GitHubApiError(
+      `GitHub API request failed (${response.status}).`,
+      response.status,
+    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400 * attempt);
+    });
+  }
+
+  throw lastError;
+}
+
 async function githubFetch<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: githubHeaders(),
-    cache: "no-store",
-  });
+  const response = await fetchWithRetry(url);
 
   if (response.status === 404) {
     throw new GitHubApiError(

@@ -1,7 +1,7 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
-import { embedQuery } from "./embeddings";
+import { retrieveRepoChunks } from "@/lib/chat/retrieval";
+import { MAX_RETRIEVAL_QUERY_CHARACTERS } from "@/lib/chat/limits";
 
 export type SemanticSearchResult = {
   chunk_id: string;
@@ -18,28 +18,24 @@ export async function searchRepoChunks(
   repoId: string,
   query: string,
   limit = 8,
+  snapshotId?: string | null,
 ): Promise<SemanticSearchResult[]> {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return [];
   }
 
-  if (normalizedQuery.length > 500) {
-    throw new Error("Search queries must be 500 characters or fewer.");
+  if (normalizedQuery.length > MAX_RETRIEVAL_QUERY_CHARACTERS) {
+    throw new Error(
+      `Search queries must be ${MAX_RETRIEVAL_QUERY_CHARACTERS} characters or fewer.`,
+    );
   }
 
-  const queryEmbedding = await embedQuery(normalizedQuery);
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("match_chunks", {
-    query_embedding: queryEmbedding,
-    match_repo_id: repoId,
-    match_threshold: 0.2,
-    match_count: limit,
+  const result = await retrieveRepoChunks({
+    repoId,
+    query: normalizedQuery,
+    snapshotId,
+    limit,
   });
-
-  if (error) {
-    throw new Error(`Semantic search failed: ${error.message}`);
-  }
-
-  return (data ?? []) as SemanticSearchResult[];
+  return result.chunks;
 }

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "repository": "sindresorhus/is",
+  "budget": {
+    "maxLatencyMs": 15000,
+    "minCitationPrecision": 1,
+    "minRecallAt8": 0.75
+  },
+  "cases": [
+    {
+      "id": "type-guard",
+      "question": "Where is the string type guard implemented?",
+      "expectedPaths": ["source/index.ts", "source/is.ts"],
+      "mustCite": true
+    },
+    {
+      "id": "readme-purpose",
+      "question": "What does this package do according to the readme?",
+      "expectedPaths": ["readme.md", "README.md"],
+      "mustCite": true
+    },
+    {
+      "id": "no-evidence",
+      "question": "How does the billing webhook verify Stripe signatures?",
+      "expectedPaths": [],
+      "mustCite": false
+    }
+  ]
+}
