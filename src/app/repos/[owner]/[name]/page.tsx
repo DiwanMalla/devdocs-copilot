@@ -18,10 +18,11 @@ import { requireUser } from "@/lib/supabase/auth";
 import {
   getRepoByOwnerName,
   getRepoFileByPath,
+  getRepoSnapshot,
+  listAvailableSnapshotIds,
   listChatMessages,
   listOwnedChats,
   listRepoFileMeta,
-  snapshotExists,
 } from "@/lib/supabase/queries";
 import type { RepoStatus } from "@/lib/supabase/types";
 
@@ -93,8 +94,7 @@ export default async function RepoPage({
     notFound();
   }
 
-  const [files, searchOutcome, chats] = await Promise.all([
-    listRepoFileMeta(repo.id),
+  const [searchOutcome, chats] = await Promise.all([
     getSearchOutcome(
       repo.id,
       searchQuery,
@@ -107,27 +107,41 @@ export default async function RepoPage({
     notFound();
   }
 
-  const citationSnapshotId =
-    requestedSnapshot && requestedSnapshot !== repo.active_snapshot_id
-      ? requestedSnapshot
-      : null;
-  const citationSnapshotAvailable = citationSnapshotId
-    ? await snapshotExists(repo.id, citationSnapshotId)
-    : false;
-  const fileSnapshotId = citationSnapshotAvailable
-    ? citationSnapshotId
-    : repo.active_snapshot_id;
+  const activeChat =
+    chats.find((chat) => chat.id === requestedChatId) ?? chats[0] ?? null;
+  const persistedMessages = activeChat
+    ? await listChatMessages(activeChat.id)
+    : [];
+  const initialMessages = chatMessagesToUIMessages(persistedMessages);
+  const messageSnapshotIds = persistedMessages.flatMap((message) => [
+    ...(message.snapshot_id ? [message.snapshot_id] : []),
+    ...message.citations.map((citation) => citation.snapshotId),
+  ]);
+  const availableSnapshotIds = await listAvailableSnapshotIds(repo.id, [
+    ...(repo.active_snapshot_id ? [repo.active_snapshot_id] : []),
+    ...messageSnapshotIds,
+  ]);
+
+  const viewedSnapshotId = requestedSnapshot ?? repo.active_snapshot_id;
+  const viewedSnapshot = viewedSnapshotId
+    ? await getRepoSnapshot(repo.id, viewedSnapshotId)
+    : null;
+  const requestedSnapshotUnavailable =
+    Boolean(requestedSnapshot) && !viewedSnapshot;
+  const files = viewedSnapshot
+    ? await listRepoFileMeta(repo.id, viewedSnapshot.id)
+    : [];
 
   const selectedFile =
-    selectedPath !== null
-      ? await getRepoFileByPath(repo.id, selectedPath, fileSnapshotId)
+    selectedPath !== null && viewedSnapshot
+      ? await getRepoFileByPath(repo.id, selectedPath, viewedSnapshot.id)
       : null;
 
   const defaultFilePath = files[0]?.path ?? null;
   const fileToShow =
     selectedFile ??
-    (selectedPath === null && defaultFilePath
-      ? await getRepoFileByPath(repo.id, defaultFilePath, repo.active_snapshot_id)
+    (selectedPath === null && defaultFilePath && viewedSnapshot
+      ? await getRepoFileByPath(repo.id, defaultFilePath, viewedSnapshot.id)
       : null);
   const activePath = selectedFile?.path ?? fileToShow?.path ?? null;
   const fileLineCount = fileToShow?.content.split("\n").length ?? 0;
@@ -138,17 +152,11 @@ export default async function RepoPage({
   const githubFileUrl = fileToShow
     ? buildGitHubFileUrl(
         repo.html_url,
-        repo.commit_sha ?? repo.default_branch,
+        viewedSnapshot?.commit_sha ?? repo.default_branch,
         fileToShow.path,
         highlightedLines,
       )
     : null;
-
-  const activeChat =
-    chats.find((chat) => chat.id === requestedChatId) ?? chats[0] ?? null;
-  const initialMessages = activeChat
-    ? chatMessagesToUIMessages(await listChatMessages(activeChat.id))
-    : [];
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6">
@@ -230,7 +238,7 @@ export default async function RepoPage({
             name={repo.name}
             repoId={repo.id}
             chatId={activeChat?.id ?? null}
-            snapshotId={repo.active_snapshot_id}
+            availableSnapshotIds={availableSnapshotIds}
             initialMessages={initialMessages}
             disabled={!repo.active_snapshot_id || repo.chunk_count === 0}
             path={selectedPath}
@@ -273,7 +281,7 @@ export default async function RepoPage({
                 : null
             }
             emptyMessage={
-              selectedPath && citationSnapshotId && !citationSnapshotAvailable
+              selectedPath && requestedSnapshotUnavailable
                 ? "That citation points to a snapshot that is no longer available."
                 : selectedPath && !selectedFile
                   ? "That file is not in the ingested snapshot."

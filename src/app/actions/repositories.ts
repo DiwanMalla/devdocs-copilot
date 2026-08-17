@@ -1,13 +1,9 @@
 "use server";
 
-import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { GitHubApiError } from "@/lib/github/client";
-import {
-  enqueueGitHubRepoIngest,
-  processIngestJob,
-} from "@/lib/github/ingest";
+import { enqueueGitHubRepoIngest } from "@/lib/github/ingest";
 import { parseGitHubRepoInput } from "@/lib/github/parse-url";
 import { requireUser } from "@/lib/supabase/auth";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
@@ -44,13 +40,6 @@ export async function ingestRepo(
       parsed.owner,
       parsed.name,
     );
-    if (queued.jobId) {
-      after(() =>
-        processIngestJob(queued.jobId as string).catch((error) => {
-          console.error("Background repository indexing failed", error);
-        }),
-      );
-    }
     redirect(
       `/repos/${encodeURIComponent(queued.repo.owner)}/${encodeURIComponent(queued.repo.name)}`,
     );
@@ -88,14 +77,6 @@ export async function reindexRepository(
 
     if (result.unchanged) {
       return { notice: "This repository is already indexed at the current commit." };
-    }
-
-    if (result.jobId) {
-      after(() =>
-        processIngestJob(result.jobId as string).catch((error) => {
-          console.error("Background repository indexing failed", error);
-        }),
-      );
     }
 
     return {

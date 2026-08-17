@@ -1,9 +1,26 @@
-import { after } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processIngestJob } from "@/lib/github/ingest";
+import { processNextIngestJob } from "@/lib/github/ingest";
 
 export const maxDuration = 300;
+
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (
+    !cronSecret ||
+    request.headers.get("authorization") !== `Bearer ${cronSecret}`
+  ) {
+    return new Response("Worker authorization required.", { status: 401 });
+  }
+
+  try {
+    const result = await processNextIngestJob();
+    return Response.json(result);
+  } catch (error) {
+    console.error("Durable repository indexing worker failed", error);
+    return new Response("Indexing worker failed.", { status: 500 });
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const user = await getAuthenticatedUser();
@@ -33,14 +50,5 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("Indexing job not found.", { status: 404 });
   }
 
-  if (job.status === "succeeded") {
-    return Response.json({ accepted: true, status: job.status });
-  }
-
-  after(() =>
-    processIngestJob(jobId).catch((error) => {
-      console.error("Background repository indexing failed", error);
-    }),
-  );
-  return Response.json({ accepted: true });
+  return Response.json({ accepted: true, status: job.status });
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { DefaultChatTransport } from "ai";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2Icon, SendIcon, SquareIcon } from "lucide-react";
@@ -11,10 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_QUESTION_CHARACTERS } from "@/lib/chat/limits";
+import {
+  buildCitationHref,
+  citationAvailability,
+  findStructuredCitation,
+} from "@/lib/chat/citation-provenance";
+import type { RepoUIMessage } from "@/lib/chat/messages";
 import { buildRepoWorkspaceHref } from "@/lib/repo/href";
 import { cn } from "@/lib/utils";
 
-function messageText(message: UIMessage): string {
+function messageText(message: RepoUIMessage): string {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)
@@ -28,9 +34,11 @@ function renderAnswerWithCitationLinks(
   owner: string,
   name: string,
   chatId: string | null,
-  snapshotId: string | null,
+  message: RepoUIMessage,
+  availableSnapshotIds: ReadonlySet<string>,
 ) {
   const parts: React.ReactNode[] = [];
+  const citations = message.metadata?.citations ?? [];
   let cursor = 0;
 
   for (const match of text.matchAll(CITATION_PATTERN)) {
@@ -44,29 +52,52 @@ function renderAnswerWithCitationLinks(
       parts.push(text.slice(cursor, index));
     }
 
-    const href = buildRepoWorkspaceHref({
-      owner,
-      name,
+    const startLine = Number.parseInt(start, 10);
+    const endLine = Number.parseInt(end, 10);
+    const structured = findStructuredCitation(
+      citations,
       path,
-      lines: {
-        start: Number.parseInt(start, 10),
-        end: Number.parseInt(end, 10),
-      },
-      chatId,
-      snapshotId,
-    });
-
-    parts.push(
-      <Link
-        key={`${index}-${citation}`}
-        href={href}
-        className="bg-background/70 text-foreground inline-flex rounded px-1.5 py-0.5 font-mono text-xs underline decoration-border underline-offset-2 hover:decoration-foreground"
-        aria-label={`Open ${path}, lines ${start}–${end}`}
-        title={`Open ${path}, lines ${start}–${end}`}
-      >
-        {citation}
-      </Link>,
+      startLine,
+      endLine,
     );
+
+    if (
+      structured &&
+      citationAvailability(structured, availableSnapshotIds) === "available"
+    ) {
+      const href = buildCitationHref(structured, {
+        owner,
+        name,
+        chatId,
+      });
+
+      parts.push(
+        <Link
+          key={`${index}-${structured.chunkId}`}
+          href={href}
+          className="bg-background/70 text-foreground inline-flex rounded px-1.5 py-0.5 font-mono text-xs underline decoration-border underline-offset-2 hover:decoration-foreground"
+          aria-label={`Open ${path}, lines ${start}–${end}`}
+          title={`Open ${path}, lines ${start}–${end}`}
+        >
+          {citation}
+        </Link>,
+      );
+    } else if (structured) {
+      parts.push(
+        <span
+          key={`${index}-${structured.chunkId}`}
+          className="bg-destructive/10 text-destructive inline-flex rounded px-1.5 py-0.5 font-mono text-xs"
+          role="note"
+          aria-label={`${path}, lines ${start}–${end}; cited snapshot unavailable`}
+          title="This citation's source snapshot is no longer available."
+        >
+          {citation} (snapshot unavailable)
+        </span>,
+      );
+    } else {
+      // Never retarget an unverified persisted citation to the active snapshot.
+      parts.push(citation);
+    }
     cursor = index + citation.length;
   }
 
@@ -82,7 +113,7 @@ export function RepoChat({
   name,
   repoId,
   chatId,
-  snapshotId,
+  availableSnapshotIds,
   initialMessages,
   disabled,
   path,
@@ -92,8 +123,8 @@ export function RepoChat({
   name: string;
   repoId: string;
   chatId: string | null;
-  snapshotId: string | null;
-  initialMessages: UIMessage[];
+  availableSnapshotIds: string[];
+  initialMessages: RepoUIMessage[];
   disabled: boolean;
   path?: string | null;
   query?: string | null;
@@ -107,13 +138,13 @@ export function RepoChat({
   const [chatKey] = useState(() => chatId ?? `pending-${repoId}`);
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
+      new DefaultChatTransport<RepoUIMessage>({
         api: "/api/chat",
         body: { owner, name },
       }),
     [owner, name],
   );
-  const { messages, sendMessage, status, error, stop } = useChat({
+  const { messages, sendMessage, status, error, stop } = useChat<RepoUIMessage>({
     id: chatKey,
     messages: initialMessages,
     transport,
@@ -123,6 +154,10 @@ export function RepoChat({
   const isGenerating = status === "submitted" || status === "streaming";
   const chatDisabled = disabled || creatingThread;
   const displayError = threadError ?? error?.message ?? null;
+  const availableSnapshots = useMemo(
+    () => new Set(availableSnapshotIds),
+    [availableSnapshotIds],
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -233,7 +268,8 @@ export function RepoChat({
                       owner,
                       name,
                       activeChatId,
-                      snapshotId,
+                      message,
+                      availableSnapshots,
                     )
                   : text}
               </div>

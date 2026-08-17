@@ -1,5 +1,10 @@
-import type { ChatMessage } from "@/lib/supabase/types";
+import type {
+  ChatMessage,
+  RepoChatMessageMetadata,
+} from "@/lib/supabase/types";
 import type { UIMessage } from "ai";
+
+export type RepoUIMessage = UIMessage<RepoChatMessageMetadata>;
 
 function displayContent(message: ChatMessage): string {
   if (message.content.trim()) {
@@ -16,7 +21,7 @@ function displayContent(message: ChatMessage): string {
 
 export function chatMessagesToUIMessages(
   messages: ChatMessage[],
-): UIMessage[] {
+): RepoUIMessage[] {
   return messages
     .filter((message) => {
       if (message.role === "user") {
@@ -32,6 +37,11 @@ export function chatMessagesToUIMessages(
       id: message.id,
       role: message.role,
       parts: [{ type: "text" as const, text: displayContent(message) }],
+      metadata: {
+        snapshotId:
+          message.snapshot_id ?? message.citations[0]?.snapshotId ?? null,
+        citations: message.citations,
+      },
     }))
     .filter((message) => message.parts[0]?.text);
 }

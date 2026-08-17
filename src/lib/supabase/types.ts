@@ -20,6 +20,45 @@ export type StructuredCitation = {
   snapshotId: string;
 };
 
+export type RepoChatMessageMetadata = {
+  snapshotId: string | null;
+  citations: StructuredCitation[];
+};
+
+export type RepoSnapshot = {
+  id: string;
+  repo_id: string;
+  commit_sha: string;
+  status: "pending" | "indexing" | "ready" | "failed";
+  file_count: number;
+  chunk_count: number;
+  truncated: boolean;
+  capped: boolean;
+  error: string | null;
+  created_at: string;
+  indexed_at: string | null;
+};
+
+export type IngestJob = {
+  id: string;
+  repo_id: string;
+  snapshot_id: string;
+  user_id: string;
+  owner: string;
+  name: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  error: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  available_at: string;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  heartbeat_at: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
 export type Repo = {
   id: string;
   user_id: string;

@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Repo } from "@/lib/supabase/types";
+import type { IngestJob, Repo } from "@/lib/supabase/types";
 import { indexRepoFiles } from "@/lib/ai/index-repo";
 import { INGEST_LOCK_MS, SNAPSHOT_RETENTION } from "@/lib/chat/limits";
 import { shouldSkipReindex } from "./reindex";
@@ -20,6 +20,13 @@ import { assertIndexableTree } from "./tree";
 
 const BLOB_CONCURRENCY = 8;
 const INSERT_BATCH_SIZE = 40;
+const INGEST_LEASE_SECONDS = 360;
+const RETRY_DELAY_SECONDS = 30;
+
+export type IngestExecutionResult = {
+  jobId: string | null;
+  status: "idle" | "succeeded" | "retrying" | "failed" | "lost";
+};
 
 export type IngestedFile = {
   path: string;
@@ -211,6 +218,7 @@ export async function enqueueGitHubRepoIngest(
     .single();
 
   if (jobError || !job) {
+    await admin.from("repo_snapshots").delete().eq("id", snapshot.id);
     await admin
       .from("repos")
       .update({ ingest_lock_until: null })
@@ -242,62 +250,115 @@ async function pruneOldSnapshots(repoId: string, activeSnapshotId: string) {
   await admin.from("repo_snapshots").delete().in("id", extra);
 }
 
-export async function processIngestJob(jobId: string): Promise<void> {
+async function claimNextIngestJob(workerId: string): Promise<IngestJob | null> {
   const admin = createAdminClient();
-  const { data: job, error: jobError } = await admin
-    .from("ingest_jobs")
-    .select("*")
-    .eq("id", jobId)
-    .maybeSingle();
-
-  if (jobError || !job) {
-    throw new Error(jobError?.message ?? "Indexing job not found.");
+  const { data, error } = await admin.rpc("claim_ingest_job", {
+    p_worker_id: workerId,
+    p_lease_seconds: INGEST_LEASE_SECONDS,
+  });
+  if (error) {
+    throw new Error(`Could not claim indexing work: ${error.message}`);
   }
+  return ((data ?? [])[0] as IngestJob | undefined) ?? null;
+}
 
-  const { data: repo } = await admin
-    .from("repos")
-    .select("*")
-    .eq("id", job.repo_id)
-    .single();
-
-  const previousSnapshotId = (repo?.active_snapshot_id as string | null) ?? null;
-
-  await admin
-    .from("ingest_jobs")
-    .update({
-      status: "running",
-      started_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
-
-  await admin
-    .from("repo_snapshots")
-    .update({ status: "indexing" })
-    .eq("id", job.snapshot_id);
-
-  if (!previousSnapshotId) {
-    await admin
-      .from("repos")
-      .update({ status: "indexing", error: null })
-      .eq("id", job.repo_id);
+async function renewIngestLease(jobId: string, workerId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("renew_ingest_job_lease", {
+    p_job_id: jobId,
+    p_worker_id: workerId,
+    p_lease_seconds: INGEST_LEASE_SECONDS,
+  });
+  if (error || data !== true) {
+    throw new Error(error?.message ?? "Indexing lease was lost.");
   }
+}
 
+async function prepareIngestAttempt(
+  jobId: string,
+  workerId: string,
+): Promise<void> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("prepare_ingest_job_attempt", {
+    p_job_id: jobId,
+    p_worker_id: workerId,
+  });
+  if (error || data !== true) {
+    throw new Error(error?.message ?? "Indexing lease was lost before preparation.");
+  }
+}
+
+async function completeIngestAttempt(input: {
+  job: IngestJob;
+  workerId: string;
+  fileCount: number;
+  chunkCount: number;
+}): Promise<void> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("complete_ingest_job", {
+    p_job_id: input.job.id,
+    p_worker_id: input.workerId,
+    p_file_count: input.fileCount,
+    p_chunk_count: input.chunkCount,
+  });
+  if (error || data !== true) {
+    throw new Error(error?.message ?? "Indexing lease was lost before activation.");
+  }
+}
+
+async function failIngestAttempt(
+  job: IngestJob,
+  workerId: string,
+  error: unknown,
+): Promise<IngestExecutionResult["status"]> {
+  const message =
+    error instanceof Error ? error.message : "Ingestion failed unexpectedly.";
+  const admin = createAdminClient();
+  const { data, error: updateError } = await admin.rpc(
+    "fail_ingest_job_attempt",
+    {
+      p_job_id: job.id,
+      p_worker_id: workerId,
+      p_error: message,
+      p_retry_delay_seconds: RETRY_DELAY_SECONDS * job.attempt_count,
+    },
+  );
+  if (updateError) {
+    throw new Error(`Could not record indexing failure: ${updateError.message}`);
+  }
+  return data === "retrying" || data === "failed" ? data : "lost";
+}
+
+async function processClaimedIngestJob(
+  job: IngestJob,
+  workerId: string,
+): Promise<IngestExecutionResult> {
   try {
-    const { data: snapshot } = await admin
+    await prepareIngestAttempt(job.id, workerId);
+    await renewIngestLease(job.id, workerId);
+
+    const admin = createAdminClient();
+    const { data: snapshot, error: snapshotError } = await admin
       .from("repo_snapshots")
       .select("commit_sha")
       .eq("id", job.snapshot_id)
+      .eq("repo_id", job.repo_id)
       .single();
+    if (snapshotError || !snapshot?.commit_sha) {
+      throw new Error(snapshotError?.message ?? "Indexing snapshot not found.");
+    }
 
-    const commitSha = snapshot?.commit_sha as string;
-    const files = await collectIngestibleFiles(job.owner, job.name, commitSha);
-
+    const files = await collectIngestibleFiles(
+      job.owner,
+      job.name,
+      snapshot.commit_sha,
+    );
+    await renewIngestLease(job.id, workerId);
     if (files.length === 0) {
       throw new Error("No ingestible source files found in this repository.");
     }
 
     const storedFileIds = new Map<string, string>();
-
     for (let i = 0; i < files.length; i += INSERT_BATCH_SIZE) {
       const batch = files.slice(i, i + INSERT_BATCH_SIZE).map((file) => ({
         repo_id: job.repo_id,
@@ -308,19 +369,17 @@ export async function processIngestJob(jobId: string): Promise<void> {
         sha: file.sha,
         content: file.content,
       }));
-
       const { data: storedFiles, error: insertError } = await admin
         .from("files")
         .insert(batch)
         .select("id, path");
-
       if (insertError) {
         throw new Error(insertError.message);
       }
-
       for (const storedFile of storedFiles ?? []) {
         storedFileIds.set(storedFile.path, storedFile.id);
       }
+      await renewIngestLease(job.id, workerId);
     }
 
     if (storedFileIds.size !== files.length) {
@@ -337,109 +396,37 @@ export async function processIngestJob(jobId: string): Promise<void> {
         }
         return { id, path: file.path, content: file.content };
       }),
+      () => renewIngestLease(job.id, workerId),
     );
-
-    const indexedAt = new Date().toISOString();
-    const { error: snapshotReadyError } = await admin
-      .from("repo_snapshots")
-      .update({
-        status: "ready",
-        file_count: files.length,
-        chunk_count: chunkCount,
-        indexed_at: indexedAt,
-        error: null,
-      })
-      .eq("id", job.snapshot_id);
-
-    if (snapshotReadyError) {
-      throw new Error(snapshotReadyError.message);
-    }
-
-    const { error: repoReadyError } = await admin
-      .from("repos")
-      .update({
-        status: "ready",
-        file_count: files.length,
-        chunk_count: chunkCount,
-        error: null,
-        commit_sha: commitSha,
-        last_indexed_at: indexedAt,
-        active_snapshot_id: job.snapshot_id,
-        ingest_lock_until: null,
-      })
-      .eq("id", job.repo_id);
-
-    if (repoReadyError) {
-      throw new Error(repoReadyError.message);
-    }
-
-    await admin
-      .from("ingest_jobs")
-      .update({
-        status: "succeeded",
-        finished_at: indexedAt,
-        error: null,
-      })
-      .eq("id", jobId);
-
+    await renewIngestLease(job.id, workerId);
+    await completeIngestAttempt({
+      job,
+      workerId,
+      fileCount: files.length,
+      chunkCount,
+    });
     await pruneOldSnapshots(job.repo_id, job.snapshot_id);
+    return { jobId: job.id, status: "succeeded" };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Ingestion failed unexpectedly.";
-    const keepPrevious = Boolean(previousSnapshotId);
-
-    await admin
-      .from("repo_snapshots")
-      .update({
-        status: "failed",
-        error: message,
-      })
-      .eq("id", job.snapshot_id);
-
-    await admin
-      .from("repos")
-      .update({
-        status: keepPrevious ? "ready" : "failed",
-        error: keepPrevious ? null : message,
-        ingest_lock_until: null,
-      })
-      .eq("id", job.repo_id);
-
-    await admin
-      .from("ingest_jobs")
-      .update({
-        status: "failed",
-        error: message,
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
-
-    throw error;
+    return {
+      jobId: job.id,
+      status: await failIngestAttempt(job, workerId, error),
+    };
   }
 }
 
-export async function ingestGitHubRepo(
-  userId: string,
-  owner: string,
-  name: string,
-  options?: { skipIfUnchanged?: boolean },
-): Promise<{ repo: Repo; unchanged: boolean }> {
-  const queued = await enqueueGitHubRepoIngest(userId, owner, name, options);
-  if (queued.unchanged || !queued.jobId) {
-    return { repo: queued.repo, unchanged: queued.unchanged };
-  }
-
-  await processIngestJob(queued.jobId);
+export async function processNextIngestJob(
+  workerId = crypto.randomUUID(),
+): Promise<IngestExecutionResult> {
   const admin = createAdminClient();
-  const { data: repo, error } = await admin
-    .from("repos")
-    .select("*")
-    .eq("id", queued.repo.id)
-    .single();
-
-  if (error || !repo) {
-    throw new Error(error?.message ?? "Failed to load indexed repository.");
+  const { error: recoveryError } = await admin.rpc("recover_expired_ingest_jobs");
+  if (recoveryError) {
+    throw new Error(`Could not recover expired indexing jobs: ${recoveryError.message}`);
   }
 
-  return { repo: repo as Repo, unchanged: false };
+  const job = await claimNextIngestJob(workerId);
+  if (!job) {
+    return { jobId: null, status: "idle" };
+  }
+  return await processClaimedIngestJob(job, workerId);
 }

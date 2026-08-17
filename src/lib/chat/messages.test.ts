@@ -30,4 +30,38 @@ describe("chatMessagesToUIMessages", () => {
       { type: "text", text: "Generation cancelled." },
     ]);
   });
+
+  it("preserves the persisted snapshot and complete structured citation", () => {
+    const ui = chatMessagesToUIMessages([
+      message({
+        id: "a1",
+        role: "assistant",
+        content: "See [src/index.ts:L4-L8].",
+        status: "complete",
+        snapshot_id: "snapshot-a",
+        citations: [
+          {
+            chunkId: "chunk-a",
+            path: "src/index.ts",
+            startLine: 4,
+            endLine: 8,
+            snapshotId: "snapshot-a",
+          },
+        ],
+      }),
+    ]);
+
+    expect(ui[0]?.metadata).toEqual({
+      snapshotId: "snapshot-a",
+      citations: [
+        {
+          chunkId: "chunk-a",
+          path: "src/index.ts",
+          startLine: 4,
+          endLine: 8,
+          snapshotId: "snapshot-a",
+        },
+      ],
+    });
+  });
 });

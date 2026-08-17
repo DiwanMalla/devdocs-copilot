@@ -16,7 +16,10 @@ import {
   CHAT_MODEL,
 } from "@/lib/ai/chat";
 import { generateChatTitle } from "@/lib/chat/title";
-import { chatMessagesToUIMessages } from "@/lib/chat/messages";
+import {
+  chatMessagesToUIMessages,
+  type RepoUIMessage,
+} from "@/lib/chat/messages";
 import { parseGitHubRepoInput } from "@/lib/github/parse-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
@@ -25,7 +28,11 @@ import {
   getRepoByOwnerName,
   listChatMessages,
 } from "@/lib/supabase/queries";
-import type { ChatMessage, Repo } from "@/lib/supabase/types";
+import type {
+  ChatMessage,
+  Repo,
+  RepoChatMessageMetadata,
+} from "@/lib/supabase/types";
 import {
   citationsAreValid,
   extractStructuredCitations,
@@ -77,11 +84,16 @@ function parseRequestId(body: Record<string, unknown>): string {
   return requestId;
 }
 
-function replayAnswer(answer: string, originalMessages: UIMessage[]) {
-  const stream = createUIMessageStream({
+function replayAnswer(
+  answer: string,
+  originalMessages: RepoUIMessage[],
+  metadata: RepoChatMessageMetadata,
+) {
+  const stream = createUIMessageStream<RepoUIMessage>({
     originalMessages,
     execute: ({ writer }) => {
       const id = crypto.randomUUID();
+      writer.write({ type: "message-metadata", messageMetadata: metadata });
       writer.write({ type: "text-start", id });
       writer.write({ type: "text-delta", id, delta: answer });
       writer.write({ type: "text-end", id });
@@ -366,7 +378,17 @@ export async function handleChatRequest(request: Request): Promise<Response> {
           repoId: repo.id,
           chatId: chat.id,
         });
-        return replayAnswer(existingAssistant.content, messages.slice(-12));
+        return replayAnswer(
+          existingAssistant.content,
+          messages.slice(-12) as RepoUIMessage[],
+          {
+            snapshotId:
+              existingAssistant.snapshot_id ??
+              existingAssistant.citations[0]?.snapshotId ??
+              null,
+            citations: existingAssistant.citations,
+          },
+        );
       }
       if (
         existingAssistant &&
@@ -467,11 +489,18 @@ export async function handleChatRequest(request: Request): Promise<Response> {
         chatId: chat.id,
         durationMs: Date.now() - started,
       });
-      return replayAnswer(INSUFFICIENT_EVIDENCE_MESSAGE, history);
+      return replayAnswer(INSUFFICIENT_EVIDENCE_MESSAGE, history, {
+        snapshotId: repo.active_snapshot_id,
+        citations: [],
+      });
     }
 
     const modelMessages = await convertToModelMessages(history);
     let finalized = false;
+    let responseMetadata: RepoChatMessageMetadata = {
+      snapshotId: repo.active_snapshot_id,
+      citations: [],
+    };
 
     const finishGeneration = async (rawText: string, aborted: boolean) => {
       if (finalized) {
@@ -510,6 +539,10 @@ export async function handleChatRequest(request: Request): Promise<Response> {
           retrieval.chunks,
           repo.active_snapshot_id as string,
         );
+      responseMetadata = {
+        snapshotId: repo.active_snapshot_id,
+        citations: valid ? citations : [],
+      };
 
       await finalizeAssistant(assistant.id, {
         content: valid ? normalized : INSUFFICIENT_EVIDENCE_MESSAGE,
@@ -557,6 +590,10 @@ export async function handleChatRequest(request: Request): Promise<Response> {
 
     return result.toUIMessageStreamResponse({
       originalMessages: history,
+      messageMetadata: ({ part }) =>
+        part.type === "start" || part.type === "finish"
+          ? responseMetadata
+          : undefined,
       onError: (error) => {
         chatError({
           event: "chat_provider_failed",

@@ -8,6 +8,7 @@ import type {
   Repo,
   RepoFile,
   RepoFileMeta,
+  RepoSnapshot,
   StructuredCitation,
 } from "@/lib/supabase/types";
 
@@ -89,16 +90,22 @@ export async function getOwnedRepoById(repoId: string): Promise<Repo | null> {
   return (data as Repo | null) ?? null;
 }
 
-export async function listRepoFileMeta(repoId: string): Promise<RepoFileMeta[]> {
+export async function listRepoFileMeta(
+  repoId: string,
+  snapshotId?: string | null,
+): Promise<RepoFileMeta[]> {
   const supabase = await createClient();
-  const { data: repo, error: repoError } = await supabase
-    .from("repos")
-    .select("active_snapshot_id")
-    .eq("id", repoId)
-    .maybeSingle();
-
-  if (repoError) {
-    throw new Error(repoError.message);
+  let resolvedSnapshotId = snapshotId ?? null;
+  if (snapshotId === undefined) {
+    const { data: repo, error: repoError } = await supabase
+      .from("repos")
+      .select("active_snapshot_id")
+      .eq("id", repoId)
+      .maybeSingle();
+    if (repoError) {
+      throw new Error(repoError.message);
+    }
+    resolvedSnapshotId = repo?.active_snapshot_id ?? null;
   }
 
   let query = supabase
@@ -107,8 +114,10 @@ export async function listRepoFileMeta(repoId: string): Promise<RepoFileMeta[]> 
     .eq("repo_id", repoId)
     .order("path", { ascending: true });
 
-  if (repo?.active_snapshot_id) {
-    query = query.eq("snapshot_id", repo.active_snapshot_id);
+  if (resolvedSnapshotId) {
+    query = query.eq("snapshot_id", resolvedSnapshotId);
+  } else {
+    return [];
   }
 
   const { data, error } = await query;
@@ -174,6 +183,48 @@ export async function snapshotExists(
   }
 
   return Boolean(data);
+}
+
+export async function getRepoSnapshot(
+  repoId: string,
+  snapshotId: string,
+): Promise<RepoSnapshot | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("repo_snapshots")
+    .select("*")
+    .eq("id", snapshotId)
+    .eq("repo_id", repoId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data as RepoSnapshot | null) ?? null;
+}
+
+export async function listAvailableSnapshotIds(
+  repoId: string,
+  snapshotIds: string[],
+): Promise<string[]> {
+  const uniqueIds = [...new Set(snapshotIds.filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("repo_snapshots")
+    .select("id")
+    .eq("repo_id", repoId)
+    .in("id", uniqueIds);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => String(row.id));
 }
 
 export async function listOwnedChats(repoId: string): Promise<ChatThread[]> {

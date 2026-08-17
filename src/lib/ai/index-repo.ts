@@ -25,6 +25,7 @@ export async function indexRepoFiles(
   repoId: string,
   snapshotId: string,
   files: IndexableFile[],
+  heartbeat?: () => Promise<void>,
 ): Promise<number> {
   const admin = createAdminClient();
   const pendingChunks: PendingChunk[] = files.flatMap((file) =>
@@ -44,9 +45,11 @@ export async function indexRepoFiles(
     throw new Error("No source chunks were produced for this repository.");
   }
 
+  await heartbeat?.();
   const embeddings = await embedTexts(
     pendingChunks.map((chunk) => chunk.embeddingText),
   );
+  await heartbeat?.();
 
   if (embeddings.length !== pendingChunks.length) {
     throw new Error("The embedding provider returned an incomplete result.");
@@ -74,6 +77,7 @@ export async function indexRepoFiles(
     if (error) {
       throw new Error(`Failed to store source chunks: ${error.message}`);
     }
+    await heartbeat?.();
   }
 
   return pendingChunks.length;
