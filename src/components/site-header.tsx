@@ -8,7 +8,7 @@ export function SiteHeader() {
           DevDocs Copilot
         </Link>
         <p className="text-muted-foreground hidden text-sm sm:block">
-          Phase 2 · semantic code search
+          Phase 3 · grounded repository chat
         </p>
       </div>
     </header>

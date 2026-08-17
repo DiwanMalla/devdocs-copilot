@@ -1,8 +1,9 @@
 # DevDocs Copilot
 
 Turns a public GitHub repository into a browsable, semantically searchable
-source library. Phase 2 chunks source files and stores OpenAI
-`text-embedding-3-small` vectors through OpenRouter in Supabase pgvector.
+source library with grounded question answering. Source files are embedded with
+OpenAI `text-embedding-3-small` through OpenRouter and answers are generated
+from retrieved repository chunks.
 
 ## Setup
 
@@ -32,7 +33,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## How to test Phase 2
+## How to test Phase 3
 
 1. Paste a **small public repo**, such as `octocat/Hello-World` or `sindresorhus/is`.
 2. Wait for ingest and embedding generation to finish. You should land on `/repos/{owner}/{name}`.
@@ -46,9 +47,13 @@ Open [http://localhost:3000](http://localhost:3000).
    errors handled?” Results should include paths, line ranges, and similarity
    scores.
 5. Click a result and confirm the corresponding file opens.
-6. Ingest the same URL again. Stored files and chunks should be replaced, not
+6. Ask a repository question in the chat. The answer should contain exact
+   `[path:Lstart-Lend]` citations from retrieved chunks.
+7. Ask about something absent from the repository. The assistant should report
+   that it could not find enough evidence instead of inventing an answer.
+8. Ingest the same URL again. Stored files and chunks should be replaced, not
    duplicated.
-7. Try an invalid URL and a private/missing repo. You should see a clear error
+9. Try an invalid URL and a private/missing repo. You should see a clear error
    on the home page.
 
 Avoid huge repos for the first test (`vercel/next.js` will hit the 250-file cap and many GitHub API calls).
@@ -64,8 +69,10 @@ Avoid huge repos for the first test (`vercel/next.js` will hit the 250-file cap 
 - Generates 1,536-dimensional embeddings through OpenRouter
 - Stores vectors in Supabase pgvector with an HNSW cosine index
 - Performs repository-scoped semantic similarity search
+- Answers repository questions with `openai/gpt-oss-20b:free`
+- Restricts answers to retrieved context and normalizes citations to exact
+  stored file/line ranges
 
 ## Next (not built)
 
-- Phase 3: chat with source citations
 - Phase 4: jump from a citation to the matching line

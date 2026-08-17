@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FileTree } from "@/components/file-tree";
 import { FileViewer } from "@/components/file-viewer";
+import { RepoChat } from "@/components/repo-chat";
 import { SemanticSearch } from "@/components/semantic-search";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -120,6 +121,12 @@ export default async function RepoPage({
           {repo.error}
         </p>
       ) : null}
+
+      <RepoChat
+        owner={repo.owner}
+        name={repo.name}
+        disabled={repo.status !== "ready" || repo.chunk_count === 0}
+      />
 
       <SemanticSearch
         owner={repo.owner}
