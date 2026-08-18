@@ -139,9 +139,9 @@ flowchart TD
 - Email sign-in uses `signInWithPassword` and then navigates in the browser.
   Sign-up uses `signUp` and can require email confirmation depending on the
   Supabase project setting.
-- `src/proxy.ts` refreshes the Supabase session and redirects unauthenticated
-  page requests to `/login`. It does not redirect `/api/*`; those routes must
-  authenticate themselves.
+- `src/proxy.ts` refreshes the Supabase session, attaches a nonce-based Content
+  Security Policy, and redirects unauthenticated page requests to `/login`. It
+  does not redirect `/api/*`; those routes must authenticate themselves.
 - The chat API performs its own authentication and ownership checks before
   retrieval or generation.
 
@@ -267,7 +267,8 @@ Re-index and delete actions live on the home repository list (`/`). The
 
 ## Database schema and migrations
 
-Run the migrations in numeric order:
+Apply every checked-in migration in order before running the app, tests, or
+deployment smoke checks:
 
 1. [`001_repos_and_files.sql`](supabase/migrations/001_repos_and_files.sql)
    creates repositories, files, indexes, the `set_updated_at` trigger, and the
@@ -279,6 +280,17 @@ Run the migrations in numeric order:
    adds repository ownership and indexing timestamps, creates chats and
    messages, replaces public-read policies with owner-only RLS, and makes
    `match_chunks` owner-aware.
+4. [`004_production_chat.sql`](supabase/migrations/004_production_chat.sql)
+   adds durable chat lifecycle columns, chat/idempotency constraints, and the
+   initial ingest worker tables.
+5. [`005_hybrid_retrieval_active_snapshot.sql`](supabase/migrations/005_hybrid_retrieval_active_snapshot.sql)
+   adds snapshot-aware retrieval, lexical search, and active-snapshot helpers.
+6. [`20260817145236_durable_ingest_jobs.sql`](supabase/migrations/20260817145236_durable_ingest_jobs.sql)
+   replaces best-effort indexing with leased, retryable durable ingest jobs.
+7. [`20260817151537_atomic_chat_rate_limit.sql`](supabase/migrations/20260817151537_atomic_chat_rate_limit.sql)
+   moves owner chat rate limiting into PostgreSQL.
+8. [`20260817151717_fix_atomic_chat_rate_limit.sql`](supabase/migrations/20260817151717_fix_atomic_chat_rate_limit.sql)
+   corrects the initial Phase 7 rate-limit function definition.
 
 Core relationships:
 
@@ -294,6 +306,14 @@ Migration 003 creates a dedicated synthetic demo owner
 (`demo@devdocs-copilot.local`) and assigns any pre-existing unowned
 repositories to it before making `repos.user_id` non-null. It does not assign
 those repositories to a real user's account.
+
+For local validation, prefer the Supabase CLI so the schema is recreated from
+the checked-in SQL exactly:
+
+```bash
+supabase start
+supabase db reset --local --no-seed
+```
 
 ## Security model
 
@@ -329,6 +349,11 @@ DevDocs Copilot applies access control in both application code and PostgreSQL:
   `next` starts with `/`.
 - **Prompt-injection boundary:** repository source is labeled as untrusted data,
   and the model is told not to follow instructions contained in source files.
+- **Browser security headers:** `src/proxy.ts` emits a per-request nonce CSP so
+  Next.js framework scripts can run while inline and third-party scripts cannot.
+  `next.config.ts` also sets clickjacking, MIME-sniffing, referrer, and
+  Permissions-Policy headers on every route, including static assets that skip
+  the proxy.
 
 These layers prevent one authenticated user from listing, opening, searching,
 chatting with, or deleting another user's repositories and derived data.
@@ -390,13 +415,14 @@ devdocs-copilot/
 │   │   ├── chat/                    # Message conversion and thread titles
 │   │   ├── github/                  # API client, parsing, filtering, ingestion
 │   │   ├── repo/                    # Workspace links and line-range validation
+│   │   ├── security/                # CSP and browser security header builders
 │   │   └── supabase/                # SSR/browser/admin clients, queries, auth, types
-│   └── proxy.ts                     # Session refresh and page-route protection
+│   └── proxy.ts                     # Session refresh, CSP nonce, page-route protection
 ├── supabase/
 │   └── migrations/                  # Ordered Phase 1, 2, and 5 SQL migrations
 ├── .env.example                     # Environment variable template
 ├── vitest.config.ts                 # Node-based test configuration
-├── next.config.ts                   # React Compiler and Turbopack configuration
+├── next.config.ts                   # React Compiler, Turbopack, and static security headers
 └── package.json                     # Scripts and pinned dependency declarations
 ```
 
@@ -433,18 +459,25 @@ Replace every placeholder required for your setup. Never commit `.env.local`.
 
 ### 3. Create the database
 
-Create a Supabase project, open **SQL Editor**, and run these files in order:
+Create a Supabase project, open **SQL Editor**, and run every checked-in
+migration in order:
 
 ```text
 supabase/migrations/001_repos_and_files.sql
 supabase/migrations/002_chunks_and_vector_search.sql
 supabase/migrations/003_auth_workspace.sql
+supabase/migrations/004_production_chat.sql
+supabase/migrations/005_hybrid_retrieval_active_snapshot.sql
+supabase/migrations/20260817145236_durable_ingest_jobs.sql
+supabase/migrations/20260817151537_atomic_chat_rate_limit.sql
+supabase/migrations/20260817151717_fix_atomic_chat_rate_limit.sql
 ```
 
 Migration 002 enables the `vector` extension automatically and creates the
 `extensions.vector(1536)` column plus its HNSW cosine index. If you use an
-initialized and linked Supabase CLI project, you may instead review and apply
-the checked-in migrations with your normal `supabase db push` workflow.
+initialized and linked Supabase CLI project, prefer `supabase db reset --local`
+for repeatable local validation and `supabase db push` for linked remote
+environments.
 
 ### 4. Configure authentication
 
@@ -463,9 +496,11 @@ requests redirect to `/login`.
 ### 6. Verify the project
 
 ```bash
+npm run verify:migrations
+npm run check-env
 npm test
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm run build
 ```
 
@@ -486,9 +521,10 @@ Anything prefixed with `NEXT_PUBLIC_` is included in the browser bundle.
 | --- | --- | --- |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Privileged ingestion/indexing writes and RLS integration-test setup |
 | `OPENROUTER_API_KEY` | Yes for ingestion, search, and chat | `openai/text-embedding-3-small` and `openai/gpt-oss-20b:free` through OpenRouter |
+| `CRON_SECRET` | Yes | Protects the durable `/api/index` worker route |
 | `GITHUB_TOKEN` | No, recommended | Raises GitHub REST API limits; sent only by the server-side GitHub client |
 
-`SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`, and `GITHUB_TOKEN` must not use
+`SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`, `CRON_SECRET`, and `GITHUB_TOKEN` must not use
 the `NEXT_PUBLIC_` prefix.
 
 ### Template variable currently not consumed
@@ -604,9 +640,12 @@ The production build includes `/`, `/login`, `/dashboard`,
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the Next.js development server |
+| `npm run check-env` | Fail fast when required runtime variables are missing |
+| `npm run verify:migrations` | Verify the checked-in Phase 7 migration set is present |
 | `npm test` | Run all Vitest tests once |
 | `npm run lint` | Run ESLint |
-| `npx tsc --noEmit` | Run strict TypeScript checking; there is no separate `typecheck` script |
+| `npm run typecheck` | Run strict TypeScript checking |
+| `npm run ci` | Run migration verification, env validation, lint, typecheck, tests, and production build |
 | `npm run build` | Create and validate the production build |
 | `npm start` | Serve a previously created production build |
 
@@ -675,10 +714,12 @@ Do not substitute the service-role key for the browser anon key.
 
 ### Missing tables, columns, policies, or `match_chunks`
 
-Apply migrations 001, 002, and 003 in order. A missing `chunks` table,
-`chunk_count` column, `vector` type, or `match_chunks` function usually means
-migration 002 was not applied. Public data or missing ownership fields usually
-means migration 003 was not applied.
+Apply every checked-in migration in `supabase/migrations/` before starting the
+app. For local development, `supabase db reset --local --no-seed` is the
+safest way to guarantee the schema matches the repository. A missing `chunks`
+table, `chunk_count` column, `vector` type, durable ingest RPC, or
+`match_chunks` function usually means the local or remote database is behind the
+checked-in Phase 7 migration set.
 
 ### pgvector or embedding errors
 
@@ -724,3 +765,9 @@ the retrieved context is insufficient.
 
 The integration suite skips itself if any required Supabase variable is absent.
 Populate `.env.local` and run `npm test` against a development Supabase project.
+
+### CI or startup fails fast on configuration
+
+Run `npm run check-env` to verify the required runtime variables, and
+`npm run verify:migrations` to confirm the repository still contains the full
+Phase 7 migration set expected by CI and deployment docs.

@@ -2,10 +2,17 @@
   "name": "devdocs-copilot",
   "version": "0.1.0",
   "private": true,
-    "scripts": {
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "check-env": "node ./scripts/check-env.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify:migrations": "node ./scripts/verify-migrations.mjs",
+    "ci": "npm run verify:migrations && npm run check-env && npm run lint && npm run typecheck && npm test && npm run build",
     "lint": "eslint",
     "test": "vitest run"
   },

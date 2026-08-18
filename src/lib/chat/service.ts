@@ -15,6 +15,11 @@ import {
   normalizeAnswerCitations,
   CHAT_MODEL,
 } from "@/lib/ai/chat";
+import { openRouterChatProviderOptions } from "@/lib/ai/chat-provider-policy";
+import {
+  CHAT_GENERATION_TIMEOUT,
+  runChatRequest,
+} from "@/lib/ai/provider-resilience";
 import { generateChatTitle } from "@/lib/chat/title";
 import {
   chatMessagesToUIMessages,
@@ -48,7 +53,10 @@ import {
   STALE_GENERATION_MS,
 } from "./limits";
 import { chatError, chatLog } from "./observability";
-import { consumeChatRateLimit } from "./rate-limit";
+import {
+  consumeChatRateLimit,
+} from "./rate-limit";
+import { rateLimitExceededResponse } from "./rate-limit-contract";
 import { retrieveRepoChunks } from "./retrieval";
 import { validateQuestion } from "./validate";
 
@@ -283,11 +291,19 @@ async function maybeRefreshSummary(
   }
 
   try {
-    const result = await generateText({
-      model: getChatModel(),
-      prompt: `Summarize this repository chat in at most 80 words. Preserve file names and decisions.\n\n${source}`,
-      maxOutputTokens: 220,
-    });
+    const result = await runChatRequest((signal) =>
+      generateText({
+        model: getChatModel(),
+        prompt: `Summarize this repository chat in at most 80 words. Preserve file names and decisions.\n\n${source}`,
+        maxOutputTokens: 220,
+        abortSignal: signal,
+        maxRetries: 0,
+        timeout: CHAT_GENERATION_TIMEOUT.totalMs,
+        providerOptions: {
+          openrouter: openRouterChatProviderOptions(),
+        },
+      }),
+    );
     const admin = createAdminClient();
     await admin
       .from("chats")
@@ -419,12 +435,7 @@ export async function handleChatRequest(request: Request): Promise<Response> {
         userId: user.id,
         repoId: repo.id,
       });
-      return new Response("Too many chat requests. Please wait and try again.", {
-        status: 429,
-        headers: {
-          "Retry-After": String(rateLimit.retryAfterSeconds),
-        },
-      });
+      return rateLimitExceededResponse(rateLimit);
     }
 
     if (!existingUser) {
@@ -566,22 +577,37 @@ export async function handleChatRequest(request: Request): Promise<Response> {
       });
     };
 
+    const failGeneration = async (errorCode: "provider_timeout" | "provider_failed") => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      await finalizeAssistant(assistant.id, {
+        status: "failed",
+        error_code: errorCode,
+        content: "",
+      });
+    };
+
     const result = streamText({
       model: getChatModel(),
       system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks),
       messages: modelMessages,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: request.signal,
+      // AI SDK retries only request failures before stream output begins.
+      // Retrying after output would risk duplicating persisted user-visible text.
+      maxRetries: 2,
+      timeout: CHAT_GENERATION_TIMEOUT,
       providerOptions: {
-        openrouter: {
-          reasoning: {
-            effort: "minimal",
-            exclude: true,
-          },
-        },
+        openrouter: openRouterChatProviderOptions(),
       },
       onAbort: async () => {
-        await finishGeneration("", true);
+        if (request.signal.aborted) {
+          await finishGeneration("", true);
+          return;
+        }
+        await failGeneration("provider_timeout");
       },
       onFinish: async ({ text }) => {
         await finishGeneration(text, request.signal.aborted);
@@ -603,11 +629,7 @@ export async function handleChatRequest(request: Request): Promise<Response> {
           chatId: chat.id,
           error: error instanceof Error ? error.message : "unknown",
         });
-        void finalizeAssistant(assistant.id, {
-          status: "failed",
-          error_code: "provider_failed",
-          content: "",
-        });
+        void failGeneration("provider_failed");
         return "The model could not complete this answer. Please try again.";
       },
     });

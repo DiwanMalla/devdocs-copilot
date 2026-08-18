@@ -12,21 +12,19 @@ export default function LoginPage() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
       <div className="mb-8 space-y-3 text-center">
-        <p className="text-muted-foreground text-sm">Your private code workspace</p>
         <h1 className="text-3xl font-semibold tracking-tight">
           Sign in to DevDocs Copilot
         </h1>
         <p className="text-muted-foreground text-sm leading-6">
-          GitHub is the fastest way in. Email and password is available as a
-          fallback. Repositories, chats, and citations stay scoped to your
-          account.
+          Paste a GitHub repository, index a snapshot, then ask grounded
+          questions with clickable citations.
         </p>
       </div>
       <Card>
         <CardHeader>
           <CardTitle>Welcome back</CardTitle>
           <CardDescription>
-            Public GitHub repositories only. Private repo access comes later.
+            GitHub is the fastest way in. Email and password works as a fallback.
           </CardDescription>
         </CardHeader>
         <CardContent>

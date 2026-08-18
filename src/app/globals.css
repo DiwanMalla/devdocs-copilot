@@ -39,6 +39,10 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-number: var(--syntax-number);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -81,6 +85,10 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --syntax-comment: oklch(0.556 0 0);
+  --syntax-string: oklch(0.45 0.12 150);
+  --syntax-keyword: oklch(0.45 0.16 280);
+  --syntax-number: oklch(0.5 0.12 70);
 }
 
 .dark {
@@ -115,6 +123,10 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --syntax-comment: oklch(0.68 0.02 250);
+  --syntax-string: oklch(0.78 0.12 150);
+  --syntax-keyword: oklch(0.78 0.14 280);
+  --syntax-number: oklch(0.8 0.12 70);
 }
 
 @layer base {

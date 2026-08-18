@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Apply checked-in migrations to local Supabase
+        run: supabase db reset --local --no-seed
+
+      - name: Generate CI environment file
+        run: |
+          supabase status -o env > .supabase-status.env
+          node --input-type=module <<'EOF'
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const pairs = Object.fromEntries(
+            readFileSync(".supabase-status.env", "utf8")
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => {
+                const separator = line.indexOf("=");
+                return [line.slice(0, separator), line.slice(separator + 1)];
+              }),
+          );
+
+          const envLocal = [
+            `NEXT_PUBLIC_SUPABASE_URL=${pairs.API_URL ?? ""}`,
+            `NEXT_PUBLIC_SUPABASE_ANON_KEY=${pairs.ANON_KEY ?? ""}`,
+            `SUPABASE_SERVICE_ROLE_KEY=${pairs.SERVICE_ROLE_KEY ?? ""}`,
+            "NEXT_PUBLIC_SITE_URL=http://localhost:3000",
+            "CRON_SECRET=ci-cron-secret",
+            "OPENROUTER_API_KEY=ci-openrouter-key",
+            "OPENROUTER_CHAT_FALLBACK_MODEL=",
+            "GITHUB_TOKEN=",
+          ].join("\n");
+
+          writeFileSync(".env.local", `${envLocal}\n`);
+          EOF
+
+      - name: Verify migrations are present
+        run: npm run verify:migrations
+
+      - name: Validate required environment variables
+        run: npm run check-env
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript
+        run: npm run typecheck
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Build production app
+        run: npm run build

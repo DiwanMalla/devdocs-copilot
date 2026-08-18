@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { FileIcon, FolderIcon } from "lucide-react";
+import { FileIcon, FolderIcon, FolderTreeIcon } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { buildRepoWorkspaceHref } from "@/lib/repo/href";
 import { cn } from "@/lib/utils";
@@ -162,9 +163,12 @@ export function FileTree({
 
   if (files.length === 0) {
     return (
-      <p className="text-muted-foreground px-3 py-6 text-sm">
-        No files stored for this repository yet.
-      </p>
+      <EmptyState
+        icon={FolderTreeIcon}
+        title="No files yet"
+        description="Files appear here after the snapshot finishes ingesting."
+        className="px-3 py-10"
+      />
     );
   }
 

@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { MessageSquareIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { createChat, deleteChat, renameChat } from "@/app/actions/chats";
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { buildRepoWorkspaceHref } from "@/lib/repo/href";
@@ -42,15 +44,19 @@ export function ChatSidebar({
           {path ? <input type="hidden" name="path" value={path} /> : null}
           {query ? <input type="hidden" name="q" value={query} /> : null}
           <Button type="submit" size="sm" variant="outline" disabled={pending}>
+            <PlusIcon />
             New
           </Button>
         </form>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {chats.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-6 text-center text-xs">
-            Start a thread to keep questions with this repository.
-          </p>
+          <EmptyState
+            icon={MessageSquareIcon}
+            title="No threads yet"
+            description="Ask a question to keep this conversation with the repository."
+            className="px-2 py-8"
+          />
         ) : (
           <ul className="space-y-1">
             {chats.map((chat) => {
@@ -102,12 +108,12 @@ export function ChatSidebar({
                       </Link>
                       <Button
                         type="button"
-                        size="sm"
+                        size="icon-xs"
                         variant="ghost"
                         aria-label={`Rename ${chat.title}`}
                         onClick={() => setRenamingId(chat.id)}
                       >
-                        ✎
+                        <PencilIcon />
                       </Button>
                       <form
                         action={deleteChat}
@@ -122,11 +128,11 @@ export function ChatSidebar({
                         <input type="hidden" name="chatId" value={chat.id} />
                         <Button
                           type="submit"
-                          size="sm"
+                          size="icon-xs"
                           variant="ghost"
                           aria-label={`Delete ${chat.title}`}
                         >
-                          ×
+                          <Trash2Icon />
                         </Button>
                       </form>
                     </>

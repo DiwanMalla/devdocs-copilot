@@ -1,3 +1,5 @@
+import { runProviderRequest } from "@/lib/provider-resilience";
+
 type GitHubRepoResponse = {
   private: boolean;
   description: string | null;
@@ -32,6 +34,9 @@ type GitHubBlobResponse = {
   message?: string;
 };
 
+const GITHUB_TIMEOUT_MS = 12_000;
+const GITHUB_RETRY_ATTEMPTS = 3;
+
 export class GitHubApiError extends Error {
   constructor(
     message: string,
@@ -57,29 +62,40 @@ function githubHeaders(): HeadersInit {
   return headers;
 }
 
-async function fetchWithRetry(url: string): Promise<Response> {
-  let lastError: unknown;
+export async function fetchWithRetry(
+  url: string,
+  options?: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    attempts?: number;
+    sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  },
+): Promise<Response> {
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  return runProviderRequest(
+    async (signal) => {
+      const response = await fetchImpl(url, {
+        headers: githubHeaders(),
+        cache: "no-store",
+        signal,
+      });
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await fetch(url, {
-      headers: githubHeaders(),
-      cache: "no-store",
-    });
-
-    if (response.status !== 429 && response.status < 500) {
+      if (response.status === 429 || response.status >= 500) {
+        throw new GitHubApiError(
+          `GitHub API request failed (${response.status}).`,
+          response.status,
+        );
+      }
       return response;
-    }
-
-    lastError = new GitHubApiError(
-      `GitHub API request failed (${response.status}).`,
-      response.status,
-    );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 400 * attempt);
-    });
-  }
-
-  throw lastError;
+    },
+    {
+      timeoutMs: options?.timeoutMs ?? GITHUB_TIMEOUT_MS,
+      attempts: options?.attempts ?? GITHUB_RETRY_ATTEMPTS,
+      initialDelayMs: 400,
+      maxDelayMs: 1_600,
+      sleep: options?.sleep,
+    },
+  );
 }
 
 async function githubFetch<T>(url: string): Promise<T> {

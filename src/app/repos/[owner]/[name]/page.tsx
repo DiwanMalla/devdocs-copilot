@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Loader2Icon } from "lucide-react";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { FileTree } from "@/components/file-tree";
 import { FileViewer } from "@/components/file-viewer";
 import { RepoChat } from "@/components/repo-chat";
 import { RepoLifecycleActions } from "@/components/repo-lifecycle-actions";
+import { RepoStatusBadge } from "@/components/repo-status-badge";
 import { RepoStatusRefresh } from "@/components/repo-status-refresh";
 import { SemanticSearch } from "@/components/semantic-search";
-import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   searchRepoChunks,
   type SemanticSearchResult,
@@ -24,15 +27,8 @@ import {
   listOwnedChats,
   listRepoFileMeta,
 } from "@/lib/supabase/queries";
-import type { RepoStatus } from "@/lib/supabase/types";
 
 export const maxDuration = 60;
-
-function statusVariant(status: RepoStatus) {
-  if (status === "ready") return "default" as const;
-  if (status === "failed") return "destructive" as const;
-  return "secondary" as const;
-}
 
 function buildGitHubFileUrl(
   repoUrl: string,
@@ -159,17 +155,17 @@ export default async function RepoPage({
     : null;
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight">
               {repo.owner}/{repo.name}
             </h1>
-            <Badge variant={statusVariant(repo.status)}>{repo.status}</Badge>
+            <RepoStatusBadge status={repo.status} />
           </div>
           <p className="text-muted-foreground max-w-2xl text-sm">
-            {repo.description ?? "No description."}
+            {repo.description ?? "No description on GitHub."}
           </p>
           <p className="text-muted-foreground font-mono text-xs">
             {repo.file_count} files · {repo.default_branch}
@@ -178,18 +174,15 @@ export default async function RepoPage({
           </p>
         </div>
         <div className="flex flex-col items-end gap-3">
-          <div className="flex items-center gap-3 text-sm">
-            <Link
-              href={repo.html_url}
-              className="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
-              target="_blank"
-              rel="noreferrer"
-            >
-              View on GitHub
-            </Link>
-            <Link href="/" className="hover:underline underline-offset-4">
-              My repositories
-            </Link>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href={repo.html_url} target="_blank" rel="noreferrer">
+                GitHub
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">Repositories</Link>
+            </Button>
           </div>
           <RepoLifecycleActions
             repoId={repo.id}
@@ -202,24 +195,29 @@ export default async function RepoPage({
       </div>
 
       {repo.status === "failed" && repo.error ? (
-        <p className="text-destructive text-sm" role="alert">
-          {repo.error}
-        </p>
+        <Alert variant="destructive">
+          <AlertTitle>Indexing failed</AlertTitle>
+          <AlertDescription>{repo.error}</AlertDescription>
+        </Alert>
       ) : null}
 
       {repo.status === "ingesting" || repo.status === "indexing" ? (
-        <p className="text-muted-foreground text-sm" role="status">
-          Indexing this snapshot in the background. Chat stays on the last ready
-          snapshot if one exists.
-        </p>
+        <Alert>
+          <Loader2Icon className="animate-spin" />
+          <AlertTitle>Indexing in the background</AlertTitle>
+          <AlertDescription>
+            Chat stays on the last ready snapshot if one exists. This page
+            refreshes automatically.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <RepoStatusRefresh
         active={repo.status === "ingesting" || repo.status === "indexing"}
       />
 
-      <div className="bg-card grid overflow-hidden rounded-xl ring-1 ring-foreground/10 lg:grid-cols-[220px_1fr]">
-        <div className="min-h-0 border-b lg:border-r lg:border-b-0">
+      <div className="bg-card grid h-[min(40rem,calc(100dvh-9rem))] overflow-hidden rounded-xl ring-1 ring-foreground/10 max-lg:grid-rows-[10rem_minmax(0,1fr)] lg:h-128 lg:grid-cols-[220px_1fr]">
+        <div className="min-h-0 overflow-hidden border-b lg:border-r lg:border-b-0">
           <ChatSidebar
             repoId={repo.id}
             owner={repo.owner}
@@ -231,7 +229,7 @@ export default async function RepoPage({
             snapshotId={requestedSnapshot}
           />
         </div>
-        <div className="min-h-0">
+        <div className="min-h-0 overflow-hidden">
           <RepoChat
             key={activeChat?.id ?? "no-chat"}
             owner={repo.owner}
@@ -258,17 +256,22 @@ export default async function RepoPage({
         path={selectedPath}
       />
 
-      <div className="bg-card grid h-[calc(100vh-11rem)] overflow-hidden rounded-xl ring-1 ring-foreground/10 lg:grid-cols-[280px_1fr]">
-        <div className="h-full min-h-0 overflow-hidden border-b lg:border-r lg:border-b-0">
-          <FileTree
-            files={files}
-            owner={repo.owner}
-            name={repo.name}
-            selectedPath={activePath}
-            chatId={activeChat?.id ?? null}
-            query={searchQuery || null}
-            snapshotId={requestedSnapshot}
-          />
+      <div className="bg-card grid h-[calc(100vh-11rem)] min-h-[28rem] overflow-hidden rounded-xl ring-1 ring-foreground/10 lg:grid-cols-[280px_1fr]">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden border-b lg:border-r lg:border-b-0">
+          <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide uppercase">
+            Source
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <FileTree
+              files={files}
+              owner={repo.owner}
+              name={repo.name}
+              selectedPath={activePath}
+              chatId={activeChat?.id ?? null}
+              query={searchQuery || null}
+              snapshotId={requestedSnapshot}
+            />
+          </div>
         </div>
         <div className="h-full min-h-0 overflow-hidden">
           <FileViewer

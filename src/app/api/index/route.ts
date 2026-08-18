@@ -1,10 +1,15 @@
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processNextIngestJob } from "@/lib/github/ingest";
+import { validateWorkerEnv } from "@/lib/env";
+import { bootstrap } from "@/server/bootstrap";
+
+bootstrap();
 
 export const maxDuration = 300;
 
 export async function GET(request: Request): Promise<Response> {
+  validateWorkerEnv();
   const cronSecret = process.env.CRON_SECRET;
   if (
     !cronSecret ||
@@ -23,6 +28,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  validateWorkerEnv();
   const user = await getAuthenticatedUser();
   if (!user) {
     return new Response("Authentication required.", { status: 401 });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { embed, embedMany } from "ai";
-import { withRetry } from "@/lib/retry";
+import { runEmbeddingRequest } from "./provider-resilience";
 
 export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 1536;
@@ -39,11 +39,13 @@ export async function embedTexts(values: string[]): Promise<number[][]> {
 
   for (let offset = 0; offset < values.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = values.slice(offset, offset + EMBEDDING_BATCH_SIZE);
-    const result = await withRetry(() =>
+    const result = await runEmbeddingRequest((signal) =>
       embedMany({
         model,
         values: batch,
         maxParallelCalls: 2,
+        maxRetries: 0,
+        abortSignal: signal,
       }),
     );
 
@@ -57,10 +59,12 @@ export async function embedTexts(values: string[]): Promise<number[][]> {
 }
 
 export async function embedQuery(value: string): Promise<number[]> {
-  const result = await withRetry(() =>
+  const result = await runEmbeddingRequest((signal) =>
     embed({
       model: getEmbeddingModel(),
       value,
+      maxRetries: 0,
+      abortSignal: signal,
     }),
   );
   assertEmbeddingDimensions(result.embedding);

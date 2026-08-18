@@ -1,15 +1,20 @@
 import Link from "next/link";
+import { FolderGit2Icon } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
 
 export default function RepoNotFound() {
   return (
-    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 py-16 text-center">
-      <h1 className="text-2xl font-semibold tracking-tight">Repository not ingested</h1>
-      <p className="text-muted-foreground mt-2 text-sm">
-        This owner/name is not in the database yet. Ingest it from the home page.
-      </p>
-      <Link href="/" className="mt-6 text-sm underline underline-offset-4">
-        Back to ingest
-      </Link>
+    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 py-16">
+      <EmptyState
+        icon={FolderGit2Icon}
+        title="Repository not in your workspace"
+        description="This owner/name is not ingested yet. Add it from the home page to index and chat."
+      >
+        <Button asChild>
+          <Link href="/">Add a repository</Link>
+        </Button>
+      </EmptyState>
     </main>
   );
 }

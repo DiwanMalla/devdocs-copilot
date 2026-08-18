@@ -1,21 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2Icon, SendIcon, SquareIcon } from "lucide-react";
+import { SendIcon, SparklesIcon, SquareIcon } from "lucide-react";
 import { startChatThread } from "@/app/actions/chats";
+import { CitationChip } from "@/components/citation-chip";
+import { EmptyState } from "@/components/empty-state";
+import { ThinkingIndicator } from "@/components/thinking-indicator";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { MAX_QUESTION_CHARACTERS } from "@/lib/chat/limits";
 import {
   buildCitationHref,
   citationAvailability,
   findStructuredCitation,
 } from "@/lib/chat/citation-provenance";
+import { MAX_QUESTION_CHARACTERS } from "@/lib/chat/limits";
 import type { RepoUIMessage } from "@/lib/chat/messages";
 import { buildRepoWorkspaceHref } from "@/lib/repo/href";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,12 @@ function messageText(message: RepoUIMessage): string {
 
 const CITATION_PATTERN = /\[([^\]\n]+):L(\d+)-L(\d+)\]/g;
 
+const STARTER_PROMPTS = [
+  "Where is authentication handled?",
+  "How does repository ingestion work?",
+  "What should I read first in this codebase?",
+];
+
 function renderAnswerWithCitationLinks(
   text: string,
   owner: string,
@@ -37,7 +44,7 @@ function renderAnswerWithCitationLinks(
   message: RepoUIMessage,
   availableSnapshotIds: ReadonlySet<string>,
 ) {
-  const parts: React.ReactNode[] = [];
+  const parts: ReactNode[] = [];
   const citations = message.metadata?.citations ?? [];
   let cursor = 0;
 
@@ -65,37 +72,26 @@ function renderAnswerWithCitationLinks(
       structured &&
       citationAvailability(structured, availableSnapshotIds) === "available"
     ) {
-      const href = buildCitationHref(structured, {
-        owner,
-        name,
-        chatId,
-      });
-
       parts.push(
-        <Link
+        <CitationChip
           key={`${index}-${structured.chunkId}`}
-          href={href}
-          className="bg-background/70 text-foreground inline-flex rounded px-1.5 py-0.5 font-mono text-xs underline decoration-border underline-offset-2 hover:decoration-foreground"
-          aria-label={`Open ${path}, lines ${start}–${end}`}
-          title={`Open ${path}, lines ${start}–${end}`}
-        >
-          {citation}
-        </Link>,
+          href={buildCitationHref(structured, { owner, name, chatId })}
+          path={path}
+          startLine={startLine}
+          endLine={endLine}
+        />,
       );
     } else if (structured) {
       parts.push(
-        <span
+        <CitationChip
           key={`${index}-${structured.chunkId}`}
-          className="bg-destructive/10 text-destructive inline-flex rounded px-1.5 py-0.5 font-mono text-xs"
-          role="note"
-          aria-label={`${path}, lines ${start}–${end}; cited snapshot unavailable`}
-          title="This citation's source snapshot is no longer available."
-        >
-          {citation} (snapshot unavailable)
-        </span>,
+          path={path}
+          startLine={startLine}
+          endLine={endLine}
+          unavailable
+        />,
       );
     } else {
-      // Never retarget an unverified persisted citation to the active snapshot.
       parts.push(citation);
     }
     cursor = index + citation.length;
@@ -150,7 +146,7 @@ export function RepoChat({
     transport,
     onFinish: () => router.refresh(),
   });
-  const endRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const isGenerating = status === "submitted" || status === "streaming";
   const chatDisabled = disabled || creatingThread;
   const displayError = threadError ?? error?.message ?? null;
@@ -158,15 +154,24 @@ export function RepoChat({
     () => new Set(availableSnapshotIds),
     [availableSnapshotIds],
   );
+  const lastMessage = messages[messages.length - 1];
+  const lastAssistantIsStreaming =
+    status === "streaming" && lastMessage?.role === "assistant";
+  const showThinking =
+    status === "submitted" ||
+    (status === "streaming" && lastMessage?.role !== "assistant");
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const transcript = transcriptRef.current;
+    if (!transcript) {
+      return;
+    }
+    transcript.scrollTo({ top: transcript.scrollHeight, behavior: "smooth" });
   }, [messages, status]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const question = input.trim();
-    if (!question || isGenerating || chatDisabled) {
+  async function ask(question: string) {
+    const trimmed = question.trim();
+    if (!trimmed || isGenerating || chatDisabled) {
       return;
     }
 
@@ -206,7 +211,7 @@ export function RepoChat({
 
     setInput("");
     await sendMessage(
-      { text: question },
+      { text: trimmed },
       {
         body: {
           chatId: threadId,
@@ -216,39 +221,64 @@ export function RepoChat({
     );
   }
 
-  const statusLabel =
-    status === "submitted"
-      ? "Retrieving repository context"
-      : status === "streaming"
-        ? "Streaming answer"
-        : null;
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await ask(input);
+  }
 
   return (
-    <Card className="gap-0 py-0">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div>
           <h2 className="font-medium">Ask this repository</h2>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Grounded in the active snapshot · conversations persist on this thread
+            Answers use the indexed snapshot and cite exact source lines.
           </p>
         </div>
       </div>
 
       <div
-        className="max-h-[28rem] min-h-48 space-y-4 overflow-y-auto p-4"
+        ref={transcriptRef}
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
         aria-live="polite"
         aria-busy={isGenerating}
         aria-label="Repository chat transcript"
       >
         {messages.length === 0 ? (
-          <div className="text-muted-foreground flex min-h-40 items-center justify-center text-center text-sm">
-            Ask how a feature works, where behavior is implemented, or what a
-            function does.
-          </div>
+          <EmptyState
+            icon={SparklesIcon}
+            title={disabled ? "Indexing this snapshot" : "Ask anything in this repo"}
+            description={
+              disabled
+                ? "Chat unlocks when the first index is ready. You can still browse files once they appear."
+                : "Questions are answered only from retrieved source. Citations jump to the highlighted lines."
+            }
+            className="min-h-48 py-8"
+          >
+            {disabled ? null : (
+              <div className="flex flex-wrap justify-center gap-2">
+                {STARTER_PROMPTS.map((prompt) => (
+                  <Button
+                    key={prompt}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void ask(prompt)}
+                  >
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </EmptyState>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
             const text = messageText(message);
-            if (!text) {
+            const isLast = index === messages.length - 1;
+            const streamingThis =
+              lastAssistantIsStreaming && isLast && message.role === "assistant";
+
+            if (!text && !streamingThis) {
               return null;
             }
 
@@ -256,43 +286,67 @@ export function RepoChat({
               <div
                 key={message.id}
                 className={cn(
-                  "max-w-[90%] rounded-lg px-3 py-2 text-sm leading-6 whitespace-pre-wrap",
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground ml-auto"
-                    : "bg-muted",
+                  "flex",
+                  message.role === "user" ? "justify-end" : "justify-start",
                 )}
               >
-                {message.role === "assistant"
-                  ? renderAnswerWithCitationLinks(
-                      text,
-                      owner,
-                      name,
-                      activeChatId,
-                      message,
-                      availableSnapshots,
-                    )
-                  : text}
+                <div
+                  className={cn(
+                    "max-w-[90%] rounded-2xl px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap",
+                    message.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-br-md"
+                      : "bg-muted rounded-bl-md",
+                  )}
+                >
+                  {message.role === "assistant" ? (
+                    <>
+                      {text
+                        ? renderAnswerWithCitationLinks(
+                            text,
+                            owner,
+                            name,
+                            activeChatId,
+                            message,
+                            availableSnapshots,
+                          )
+                        : null}
+                      {streamingThis ? (
+                        <span
+                          className="bg-foreground/70 ml-0.5 inline-block h-4 w-1.5 animate-pulse align-text-bottom"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </>
+                  ) : (
+                    text
+                  )}
+                </div>
               </div>
             );
           })
         )}
 
-        {statusLabel ? (
-          <div className="text-muted-foreground flex items-center gap-2 text-sm">
-            <Loader2Icon className="size-4 animate-spin" />
-            {statusLabel}…
-          </div>
+        {showThinking ? (
+          <ThinkingIndicator
+            label={
+              status === "submitted"
+                ? "Searching the indexed snapshot…"
+                : "Generating an answer…"
+            }
+          />
         ) : null}
-        <div ref={endRef} />
       </div>
 
       {displayError ? (
-        <p className="text-destructive border-t px-4 py-2 text-sm" role="alert">
+        <p className="text-destructive shrink-0 border-t px-4 py-2 text-sm" role="alert">
           {displayError}
         </p>
       ) : null}
 
-      <form onSubmit={(event) => void handleSubmit(event)} className="border-t p-3">
+      <form
+        onSubmit={(event) => void handleSubmit(event)}
+        className="shrink-0 border-t p-3"
+      >
         <Textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -306,15 +360,15 @@ export function RepoChat({
           rows={3}
           placeholder={
             disabled
-              ? "Repository must finish indexing before chat is available."
-              : "How does this repository validate values?"
+              ? "Indexing must finish before chat is available."
+              : "Ask how a feature works, or where it lives in the source…"
           }
           aria-label="Repository question"
           disabled={chatDisabled || isGenerating}
         />
         <div className="mt-2 flex items-center justify-between gap-3">
           <p className="text-muted-foreground text-xs">
-            openai/gpt-oss-20b:free · answers only from retrieved context
+            Grounded answers only · citations open the explorer
           </p>
           {isGenerating ? (
             <Button type="button" variant="outline" onClick={() => stop()}>
@@ -329,6 +383,6 @@ export function RepoChat({
           )}
         </div>
       </form>
-    </Card>
+    </section>
   );
 }

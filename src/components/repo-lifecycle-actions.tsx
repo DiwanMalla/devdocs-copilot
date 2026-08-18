@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2Icon } from "lucide-react";
 import {
@@ -40,9 +41,11 @@ export function RepoLifecycleActions({
       <div className="flex flex-wrap gap-2">
         {showOpen ? (
           <Button asChild size="sm">
-            <a href={`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`}>
+            <Link
+              href={`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`}
+            >
               Open
-            </a>
+            </Link>
           </Button>
         ) : null}
         <form action={reindexAction}>

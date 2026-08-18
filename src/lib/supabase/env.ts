@@ -1,32 +1,27 @@
 import "server-only";
 
+import { listMissingEnv, validateRequiredEnv } from "@/lib/env";
+
 export function getSupabasePublicEnv(): { url: string; anonKey: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  validateRequiredEnv(["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"]);
 
-  if (!url || !anonKey) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Copy .env.example to .env.local.",
-    );
-  }
-
-  return { url, anonKey };
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
+  };
 }
 
 export function getSupabaseServiceRoleKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) {
-    throw new Error(
-      "Missing SUPABASE_SERVICE_ROLE_KEY. Copy .env.example to .env.local.",
-    );
-  }
-  return key;
+  validateRequiredEnv(["SUPABASE_SERVICE_ROLE_KEY"]);
+  return process.env.SUPABASE_SERVICE_ROLE_KEY as string;
 }
 
 export function hasSupabaseConfig(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+  return (
+    listMissingEnv([
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+    ]).length === 0
   );
 }

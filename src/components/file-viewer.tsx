@@ -1,6 +1,9 @@
 import Link from "next/link";
-import { ExternalLinkIcon } from "lucide-react";
+import { Code2Icon, ExternalLinkIcon } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { ScrollToLine } from "@/components/scroll-to-line";
+import { Button } from "@/components/ui/button";
+import { tokenClassName, tokenizeFile } from "@/lib/code/syntax";
 import type { RepoFile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 
@@ -24,13 +27,16 @@ export function FileViewer({
 }) {
   if (!file) {
     return (
-      <div className="text-muted-foreground flex h-full items-center justify-center p-8 text-sm">
-        {emptyMessage}
-      </div>
+      <EmptyState
+        icon={Code2Icon}
+        title="Select a file"
+        description={emptyMessage}
+        className="h-full"
+      />
     );
   }
 
-  const lines = file.content.split("\n");
+  const highlighted = tokenizeFile(file.content, file.language);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -51,22 +57,23 @@ export function FileViewer({
             {file.language ?? "Text"} · {file.size_bytes.toLocaleString()} bytes
           </p>
           {githubUrl ? (
-            <Link
-              href={githubUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Open selected lines on GitHub"
-              title="Open on GitHub"
-            >
-              <ExternalLinkIcon className="size-3.5" />
-            </Link>
+            <Button asChild size="icon-xs" variant="ghost">
+              <Link
+                href={githubUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open selected lines on GitHub"
+                title="Open on GitHub"
+              >
+                <ExternalLinkIcon />
+              </Link>
+            </Button>
           ) : null}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto py-4 font-mono text-[13px] leading-6">
+      <div className="min-h-0 flex-1 overflow-auto scroll-smooth py-3 font-mono text-[13px] leading-6">
         <code className="block min-w-max">
-          {lines.map((line, index) => {
+          {highlighted.map((tokens, index) => {
             const lineNumber = index + 1;
             const isHighlighted =
               highlightedLines !== null &&
@@ -78,8 +85,10 @@ export function FileViewer({
                 id={`L${lineNumber}`}
                 key={lineNumber}
                 className={cn(
-                  "grid scroll-mt-4 grid-cols-[4rem_1fr] px-4",
-                  isHighlighted && "bg-amber-500/15",
+                  "grid scroll-mt-8 grid-cols-[4rem_1fr] [contain-intrinsic-size:0_24px] [content-visibility:auto]",
+                  isHighlighted
+                    ? "border-primary bg-primary/10 border-l-2"
+                    : "border-l-2 border-transparent",
                 )}
               >
                 {highlightedLines?.start === lineNumber ? (
@@ -87,14 +96,23 @@ export function FileViewer({
                 ) : null}
                 <span
                   className={cn(
-                    "text-muted-foreground sticky left-0 pr-4 text-right select-none",
-                    isHighlighted && "text-amber-500",
+                    "text-muted-foreground sticky left-0 bg-card/90 pr-4 text-right select-none backdrop-blur-[1px]",
+                    isHighlighted && "text-primary",
                   )}
                   aria-hidden="true"
                 >
                   {lineNumber}
                 </span>
-                <span className="whitespace-pre">{line || " "}</span>
+                <span className="pr-4 whitespace-pre">
+                  {tokens.map((token, tokenIndex) => (
+                    <span
+                      key={`${lineNumber}-${tokenIndex}`}
+                      className={tokenClassName(token.type)}
+                    >
+                      {token.value}
+                    </span>
+                  ))}
+                </span>
               </span>
             );
           })}

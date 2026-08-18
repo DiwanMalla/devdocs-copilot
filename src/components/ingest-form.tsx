@@ -16,7 +16,7 @@ export function IngestForm() {
   return (
     <form action={formAction} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="repo">Public GitHub repository</Label>
+        <Label htmlFor="repo">GitHub repository</Label>
         <Input
           id="repo"
           name="repo"
@@ -36,15 +36,15 @@ export function IngestForm() {
         {pending ? (
           <>
             <Loader2Icon className="animate-spin" />
-            Ingesting and indexing…
+            Indexing repository…
           </>
         ) : (
-          "Add repository"
+          "Index repository"
         )}
       </Button>
       <p className="text-muted-foreground text-xs leading-5">
-        Public repos only. Skips binaries, vendor folders, and files over 200KB.
-        Caps at 250 source files, then creates semantic-search embeddings.
+        Public repos only. We skip binaries, vendor folders, and files over
+        200KB, then cap the snapshot at 250 source files.
       </p>
     </form>
   );

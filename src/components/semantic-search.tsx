@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SearchIcon } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SemanticSearchResult } from "@/lib/ai/search";
@@ -45,7 +46,7 @@ export function SemanticSearch({
 
       {disabled ? (
         <p className="text-muted-foreground text-xs">
-          Semantic search becomes available when repository indexing is ready.
+          Semantic search becomes available when indexing is ready.
         </p>
       ) : null}
 
@@ -56,9 +57,9 @@ export function SemanticSearch({
       ) : null}
 
       {query && !error ? (
-        <div className="grid gap-2 md:grid-cols-2">
-          {results.length > 0 ? (
-            results.map((result) => (
+        results.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {results.map((result) => (
               <Link
                 key={result.chunk_id}
                 href={buildRepoWorkspaceHref({
@@ -72,12 +73,12 @@ export function SemanticSearch({
                   chatId,
                   query,
                 })}
-                className="bg-card hover:bg-muted/60 rounded-lg p-3 ring-1 ring-foreground/10 transition-colors"
+                className="bg-card hover:bg-muted/60 rounded-xl p-3 ring-1 ring-foreground/10 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate font-mono text-xs">{result.path}</p>
                   <span className="text-muted-foreground shrink-0 text-xs">
-                    {(result.similarity * 100).toFixed(0)}%
+                    {(result.similarity * 100).toFixed(0)}% match
                   </span>
                 </div>
                 <p className="text-muted-foreground mt-1 text-xs">
@@ -87,13 +88,16 @@ export function SemanticSearch({
                   {result.content}
                 </p>
               </Link>
-            ))
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No sufficiently similar chunks found.
-            </p>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={SearchIcon}
+            title="No close matches"
+            description="Try a more specific question, or open a file from the tree and ask in chat."
+            className="bg-card rounded-xl py-8 ring-1 ring-foreground/10"
+          />
+        )
       ) : null}
     </section>
   );

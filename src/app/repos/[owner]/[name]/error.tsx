@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function RepoError({
   error,
@@ -19,16 +20,16 @@ export default function RepoError({
       <h1 className="text-2xl font-semibold tracking-tight">
         This workspace could not be loaded
       </h1>
-      <p className="text-muted-foreground mt-2 text-sm">
+      <p className="text-muted-foreground mt-2 text-sm leading-6">
         Refresh the page or return to your repositories and try again.
       </p>
-      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
-        <button type="button" className="underline underline-offset-4" onClick={reset}>
+      <div className="mt-6 flex items-center justify-center gap-3">
+        <Button type="button" onClick={reset}>
           Try again
-        </button>
-        <Link href="/" className="underline underline-offset-4">
-          My repositories
-        </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href="/">Repositories</Link>
+        </Button>
       </div>
     </main>
   );
