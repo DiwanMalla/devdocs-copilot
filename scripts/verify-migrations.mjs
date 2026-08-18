@@ -13,6 +13,7 @@ const required = [
   "20260817151537_atomic_chat_rate_limit.sql",
   "20260817151717_fix_atomic_chat_rate_limit.sql",
   "20260818130000_demo_service_role_retrieval.sql",
+  "20260818140000_repo_summary.sql",
 ];
 
 if (!existsSync(migrationsDir)) {

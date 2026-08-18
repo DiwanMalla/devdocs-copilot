@@ -165,6 +165,9 @@ export function RepoWorkspace({
             repoId={repo.id}
             chatId={activeChatId}
             availableSnapshotIds={availableSnapshotIds}
+            indexedPaths={files.map((file) => file.path)}
+            githubRepoUrl={repo.html_url}
+            githubRef={repo.commit_sha ?? repo.default_branch}
             initialMessages={initialMessages}
             disabled={!repo.active_snapshot_id || repo.chunk_count === 0}
             path={selectedPath}
