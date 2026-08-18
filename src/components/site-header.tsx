@@ -10,7 +10,7 @@ export async function SiteHeader() {
     <header className="border-border/80 bg-background/80 sticky top-0 z-20 border-b backdrop-blur-sm">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
         <Link
-          href={user ? "/" : "/login"}
+          href={user ? "/" : "/demo"}
           className="flex min-w-0 items-center gap-2.5"
         >
           <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-lg font-mono text-xs font-semibold">
@@ -22,6 +22,9 @@ export async function SiteHeader() {
         </Link>
         {user ? (
           <div className="flex items-center gap-2 sm:gap-3">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/demo">Live demo</Link>
+            </Button>
             <Button asChild variant="ghost" size="sm">
               <Link href="/">Repositories</Link>
             </Button>
@@ -35,9 +38,14 @@ export async function SiteHeader() {
             </form>
           </div>
         ) : (
-          <p className="text-muted-foreground hidden text-sm sm:block">
-            Paste a repo. Index it. Ask grounded questions.
-          </p>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/demo">Live demo</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/login">Sign in</Link>
+            </Button>
+          </div>
         )}
       </div>
     </header>

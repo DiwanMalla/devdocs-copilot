@@ -1,10 +1,39 @@
 # DevDocs Copilot
 
-DevDocs Copilot turns a public GitHub repository into a private, authenticated
-code-understanding workspace. It ingests a commit-pinned source snapshot,
-indexes line-aware chunks as vectors in Supabase PostgreSQL, retrieves relevant
-code with pgvector, and asks an OpenRouter-hosted GPT-OSS model to answer only
-from that evidence.
+Ask questions about any GitHub repository and get grounded answers with exact file + line citations.
+
+## Live demo
+
+**URL:** [https://devdocs-copilot.vercel.app/demo](https://devdocs-copilot.vercel.app/demo)
+
+No account. No API keys. This repository is already indexed — ask a question and click a citation.
+
+Locally, the same path is [http://localhost:3000/demo](http://localhost:3000/demo) after the app has Supabase + OpenRouter configured. The first visit enqueues the sample snapshot; the durable `/api/index` worker finishes indexing.
+
+## What this project does
+
+Turns a public GitHub repository into a private, searchable snapshot. You ask questions; the model answers only from retrieved source and cites `[path:Lstart-Lend]`. Citations open the exact lines in the in-app explorer or on GitHub at the indexed commit.
+
+## Why it matters
+
+Turns any GitHub repo into a searchable, AI-powered knowledge base — commit-pinned, multi-tenant, and evidence-only instead of a generic chatbot.
+
+## Architecture at a glance
+
+![DevDocs Copilot architecture](./public/architecture.svg)
+
+Self-hosted SVG (no Mermaid CDN / `unsafe-inline` scripts), so the same diagram renders in GitHub and in the app under the nonce CSP.
+
+## Tech highlights
+
+- Next.js 16 App Router
+- Supabase (Postgres + pgvector)
+- OpenRouter LLM + embeddings
+- Commit-pinned RAG system
+- Multi-tenant auth with RLS
+- CI with Supabase reset + migrations
+
+---
 
 **Portfolio summary:** a full-stack, multi-user RAG application that combines
 GitHub ingestion, 1,536-dimensional semantic retrieval, grounded LLM answers,
@@ -47,6 +76,7 @@ The result is a workflow where an authenticated user can:
 - **Token streaming chat** with cancellation, request idempotency, and durable message status
 - **Snapshot-pinned citations** that do not silently retarget after re-indexing
 - **Owner rate limits** and privacy-safe chat/retrieval diagnostics
+- **Public `/demo` workspace** that auto-loads an indexed snapshot of this repository
 - **Grounded repository chat** using `openai/gpt-oss-20b:free`
 - **Evidence-only prompting** that treats repository contents as untrusted data
   and refuses unsupported answers
@@ -60,7 +90,8 @@ The result is a workflow where an authenticated user can:
 - **RLS-based isolation** across repositories, files, chunks, chats, messages,
   and vector search
 
-## Architecture
+The diagram at the top of this README is the CSP-safe SVG used in the product.
+The mermaid charts below add implementation detail for reviewers.
 
 ### Ingestion and retrieval
 
@@ -407,6 +438,7 @@ devdocs-copilot/
 │   │   ├── api/chat/route.ts        # Authenticated grounded-chat endpoint
 │   │   ├── auth/callback/route.ts   # Supabase PKCE code exchange
 │   │   ├── login/                   # GitHub and email/password UI
+│   │   ├── demo/page.tsx            # Public sample workspace (this repo)
 │   │   ├── repos/[owner]/[name]/    # Repository workspace and code explorer
 │   │   └── page.tsx                 # Owned-repository dashboard
 │   ├── components/                  # Chat, search, file tree/viewer, lifecycle UI
@@ -427,6 +459,9 @@ devdocs-copilot/
 ```
 
 ## Getting started
+
+Open [the live demo](https://devdocs-copilot.vercel.app/demo) if you only want to try chat. The steps below are for running the full app yourself.
+
 
 ### Prerequisites
 
@@ -632,7 +667,7 @@ TypeScript: passed with npx tsc --noEmit
 Next.js:    production build passed
 ```
 
-The production build includes `/`, `/login`, `/dashboard`,
+The production build includes `/`, `/login`, `/dashboard`, `/demo`,
 `/auth/callback`, `/api/chat`, and `/repos/[owner]/[name]`.
 
 ## Development commands
@@ -670,8 +705,10 @@ The production build includes `/`, `/login`, `/dashboard`,
 - **Provider dependency.** Indexing, search, and chat require OpenRouter and the
   configured model identifiers to remain available. The selected chat model is
   a free model and may be rate-limited.
-- **No usage controls.** Rate limits, quotas, billing controls, and abuse
-  protection are not implemented.
+- **Public demo is a shared snapshot.** `/demo` loads `DiwanMalla/devdocs-copilot`
+  for the synthetic demo owner. `vercel/next.js` and `facebook/react` exceed the
+  250-file ingest cap, so they are not used as the public sample. The demo is
+  read-only aside from ephemeral chat.
 - **Chat is not token-streamed.** The model generates the full answer, then the
   API returns it as one completed UI message.
 - **Workspace query state is partial.** Switching chats, searching, or opening

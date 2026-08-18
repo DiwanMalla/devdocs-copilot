@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   canRunSupabaseIntegration,
   createReadyRepoFixture,
@@ -73,13 +74,14 @@ describe("POST /api/index authorization", () => {
 });
 
 describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () => {
-  const admin = createServiceClient();
+  let admin: SupabaseClient;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let fixture: ReadyRepoFixture;
   let GET: typeof import("./route").GET;
   let POST: typeof import("./route").POST;
 
   beforeAll(async () => {
+    admin = createServiceClient();
     fixture = await createReadyRepoFixture(admin, suffix, { namePrefix: "index" });
     mocks.embedTexts.mockImplementation(async (values: string[]) =>
       values.map(() => UNIT_EMBEDDING_VECTOR),

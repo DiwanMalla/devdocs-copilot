@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseLineRange } from "./line-range";
+import { buildGitHubFileUrl } from "./github-url";
 import { buildRepoWorkspaceHref } from "./href";
+import { parseLineRange } from "./line-range";
 
 describe("parseLineRange", () => {
   it("parses valid ranges used by citation navigation", () => {
@@ -42,6 +43,33 @@ describe("buildRepoWorkspaceHref", () => {
       }),
     ).toBe(
       "/repos/sindresorhus/is?path=readme.md&chat=chat-1&q=type+guard&snapshot=snap-1",
+    );
+  });
+
+  it("keeps demo citations on the public /demo workspace", () => {
+    expect(
+      buildRepoWorkspaceHref({
+        owner: "vercel",
+        name: "next.js",
+        path: "packages/next/index.js",
+        lines: { start: 4, end: 12 },
+        basePath: "/demo",
+      }),
+    ).toBe("/demo?path=packages%2Fnext%2Findex.js&lines=4-12#L4");
+  });
+});
+
+describe("buildGitHubFileUrl", () => {
+  it("encodes the blob path and line hash", () => {
+    expect(
+      buildGitHubFileUrl(
+        "https://github.com/expressjs/express",
+        "abc123",
+        "lib/router/index.js",
+        { start: 10, end: 18 },
+      ),
+    ).toBe(
+      "https://github.com/expressjs/express/blob/abc123/lib/router/index.js#L10-L18",
     );
   });
 });

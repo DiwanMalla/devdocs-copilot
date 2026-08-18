@@ -14,9 +14,11 @@ export function buildRepoWorkspaceHref({
   chatId,
   query,
   snapshotId,
+  basePath,
 }: {
   owner: string;
   name: string;
+  basePath?: string | null;
 } & WorkspaceQuery): string {
   const params = new URLSearchParams();
   if (path) {
@@ -37,9 +39,8 @@ export function buildRepoWorkspaceHref({
 
   const search = params.toString();
   const hash = lines ? `#L${lines.start}` : "";
-  return (
-    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
-    (search ? `?${search}` : "") +
-    hash
-  );
+  const pathname =
+    basePath ??
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  return pathname + (search ? `?${search}` : "") + hash;
 }

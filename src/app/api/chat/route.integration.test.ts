@@ -115,16 +115,40 @@ describe("POST /api/chat", () => {
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("Authentication required.");
   });
+
+  it("rejects unauthenticated demo chat for a non-sample repository", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          demo: true,
+          owner: "facebook",
+          name: "react",
+          requestId: "demo-wrong-repo",
+          messages: [
+            { role: "user", parts: [{ type: "text", text: "Where is auth?" }] },
+          ],
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe(
+      "Demo chat is only available for the sample repository.",
+    );
+  });
 });
 
 describe.skipIf(!canRun).sequential("POST /api/chat against Supabase", () => {
-  const admin = createServiceClient();
+  let admin: SupabaseClient;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let fixture: ReadyRepoFixture;
   let userClient: SupabaseClient;
   let POST: typeof import("./route").POST;
 
   beforeAll(async () => {
+    admin = createServiceClient();
     fixture = await createReadyRepoFixture(admin, suffix);
     userClient = await createSignedInClient(fixture.email, fixture.password);
     mocks.createClient.mockImplementation(async () => userClient);

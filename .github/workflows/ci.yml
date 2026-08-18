@@ -39,6 +39,19 @@ jobs:
           node --input-type=module <<'EOF'
           import { readFileSync, writeFileSync } from "node:fs";
 
+          function unquote(value) {
+            const trimmed = (value ?? "").trim();
+            if (trimmed.length >= 2) {
+              const quote = trimmed[0];
+              if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+                return trimmed.slice(1, -1);
+              }
+            }
+            return trimmed;
+          }
+
+          // `supabase status -o env` emits KEY="value". Keep the quotes out of
+          // .env.local so Vitest's parser and supabase-js both see a real URL.
           const pairs = Object.fromEntries(
             readFileSync(".supabase-status.env", "utf8")
               .split("\n")
@@ -46,7 +59,7 @@ jobs:
               .filter(Boolean)
               .map((line) => {
                 const separator = line.indexOf("=");
-                return [line.slice(0, separator), line.slice(separator + 1)];
+                return [line.slice(0, separator), unquote(line.slice(separator + 1))];
               }),
           );
 

@@ -12,6 +12,7 @@ const required = [
   "20260817145236_durable_ingest_jobs.sql",
   "20260817151537_atomic_chat_rate_limit.sql",
   "20260817151717_fix_atomic_chat_rate_limit.sql",
+  "20260818130000_demo_service_role_retrieval.sql",
 ];
 
 if (!existsSync(migrationsDir)) {

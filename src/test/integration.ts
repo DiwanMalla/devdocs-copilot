@@ -5,47 +5,75 @@ import { resolve } from "node:path";
 export const UNIT_EMBEDDING_VECTOR = [1, ...Array.from({ length: 1535 }, () => 0)];
 export const UNIT_EMBEDDING = `[${UNIT_EMBEDDING_VECTOR.join(",")}]`;
 
+const CLIENT_AUTH = { persistSession: false, autoRefreshToken: false } as const;
+
+export function unquoteEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const quote = trimmed[0];
+    if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+
+export function parseEnvAssignments(contents: string): Record<string, string> {
+  const assignments: Record<string, string> = {};
+  for (const line of contents.split("\n")) {
+    const trimmed = line.trim();
+    const separator = trimmed.indexOf("=");
+    if (!trimmed || trimmed.startsWith("#") || separator === -1) continue;
+    const key = trimmed.slice(0, separator);
+    assignments[key] = unquoteEnvValue(trimmed.slice(separator + 1));
+  }
+  return assignments;
+}
+
 export function loadEnvLocal(): void {
   try {
-    for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split(
-      "\n",
-    )) {
-      const trimmed = line.trim();
-      const separator = trimmed.indexOf("=");
-      if (!trimmed || trimmed.startsWith("#") || separator === -1) continue;
-      const key = trimmed.slice(0, separator);
-      if (!process.env[key]) process.env[key] = trimmed.slice(separator + 1);
+    const assignments = parseEnvAssignments(
+      readFileSync(resolve(process.cwd(), ".env.local"), "utf8"),
+    );
+    for (const [key, value] of Object.entries(assignments)) {
+      if (!process.env[key]) process.env[key] = value;
     }
   } catch {
     // Integration tests skip when local credentials are absent.
   }
 }
 
+function isHttpUrl(value: string | undefined): boolean {
+  return Boolean(value && /^https?:\/\//i.test(value.trim()));
+}
+
 export function canRunSupabaseIntegration(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+  return (
+    isHttpUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
+    Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()) &&
+    Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim())
   );
 }
 
+function createEnvClient(key: string): SupabaseClient {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
+    auth: CLIENT_AUTH,
+  });
+}
+
 export function createServiceClient(): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
+  return createEnvClient(process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
+
+export function createAnonClient(): SupabaseClient {
+  return createEnvClient(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 }
 
 export async function createSignedInClient(
   email: string,
   password: string,
 ): Promise<SupabaseClient> {
-  const client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
+  const client = createAnonClient();
   const signedIn = await client.auth.signInWithPassword({ email, password });
   if (signedIn.error || !signedIn.data.user) {
     throw signedIn.error ?? new Error("Could not sign in test user.");

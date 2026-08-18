@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MessageSquareIcon, SearchIcon } from "lucide-react";
+import { ArchitectureDiagram } from "@/components/architecture-diagram";
 import { IngestForm } from "@/components/ingest-form";
 import { RepoLifecycleActions } from "@/components/repo-lifecycle-actions";
 import { RepoStatusBadge } from "@/components/repo-status-badge";
@@ -76,6 +77,8 @@ export default async function HomePage() {
           </li>
         ))}
       </ol>
+
+      <ArchitectureDiagram />
 
       {!configured ? (
         <Alert>

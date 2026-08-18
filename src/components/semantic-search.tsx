@@ -15,6 +15,7 @@ export function SemanticSearch({
   disabled,
   chatId,
   path,
+  basePath,
 }: {
   owner: string;
   name: string;
@@ -24,6 +25,7 @@ export function SemanticSearch({
   disabled: boolean;
   chatId?: string | null;
   path?: string | null;
+  basePath?: string | null;
 }) {
   return (
     <section className="space-y-3">
@@ -72,6 +74,7 @@ export function SemanticSearch({
                   },
                   chatId,
                   query,
+                  basePath,
                 })}
                 className="bg-card hover:bg-muted/60 rounded-xl p-3 ring-1 ring-foreground/10 transition-colors"
               >

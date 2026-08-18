@@ -1,29 +1,30 @@
-import { notFound } from "next/navigation";
 import { RepoWorkspace } from "@/components/repo-workspace";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   searchRepoChunks,
   type SemanticSearchResult,
 } from "@/lib/ai/search";
-import { chatMessagesToUIMessages } from "@/lib/chat/messages";
+import { DEMO_REPO_INPUT, DEMO_WORKSPACE_PATH } from "@/lib/demo/config";
+import {
+  ensureDemoRepo,
+  getDemoFileByPath,
+  getDemoSnapshot,
+  listDemoFileMeta,
+  listDemoSnapshotIds,
+} from "@/lib/demo/workspace";
 import { buildGitHubFileUrl } from "@/lib/repo/github-url";
 import { parseLineRange } from "@/lib/repo/line-range";
-import { requireUser } from "@/lib/supabase/auth";
-import {
-  getRepoByOwnerName,
-  getRepoFileByPath,
-  getRepoSnapshot,
-  listAvailableSnapshotIds,
-  listChatMessages,
-  listOwnedChats,
-  listRepoFileMeta,
-} from "@/lib/supabase/queries";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
 
-export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
-async function getSearchOutcome(
+async function getDemoSearchOutcome(
   repoId: string,
   query: string,
   enabled: boolean,
+  snapshotId: string | null,
 ): Promise<{ results: SemanticSearchResult[]; error: string | null }> {
   if (!query || !enabled) {
     return { results: [], error: null };
@@ -31,7 +32,13 @@ async function getSearchOutcome(
 
   try {
     return {
-      results: await searchRepoChunks(repoId, query),
+      results: await searchRepoChunks(
+        repoId,
+        query,
+        8,
+        snapshotId,
+        createAdminClient(),
+      ),
       error: null,
     };
   } catch (error) {
@@ -43,80 +50,77 @@ async function getSearchOutcome(
   }
 }
 
-export default async function RepoPage({
-  params,
+export default async function DemoPage({
   searchParams,
 }: {
-  params: Promise<{ owner: string; name: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
-  const { owner, name } = await params;
+  if (!hasSupabaseConfig()) {
+    return (
+      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-4 py-16">
+        <Alert>
+          <AlertTitle>Demo is not configured yet</AlertTitle>
+          <AlertDescription>
+            The live demo needs Supabase and OpenRouter keys. After those are
+            set, open {DEMO_WORKSPACE_PATH} to auto-load {DEMO_REPO_INPUT}.
+          </AlertDescription>
+        </Alert>
+      </main>
+    );
+  }
+
+  let repo;
+  try {
+    repo = await ensureDemoRepo();
+  } catch (error) {
+    return (
+      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-4 py-16">
+        <Alert variant="destructive">
+          <AlertTitle>Could not load the sample repository</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error
+              ? error.message
+              : `The ${DEMO_REPO_INPUT} demo snapshot is unavailable.`}
+          </AlertDescription>
+        </Alert>
+      </main>
+    );
+  }
+
   const query = await searchParams;
   const selectedPath = typeof query.path === "string" ? query.path : null;
   const searchQuery = typeof query.q === "string" ? query.q.trim() : "";
   const requestedLines = parseLineRange(query.lines);
-  const requestedChatId = typeof query.chat === "string" ? query.chat : null;
   const requestedSnapshot =
     typeof query.snapshot === "string" ? query.snapshot : null;
 
-  const repo = await getRepoByOwnerName(
-    decodeURIComponent(owner),
-    decodeURIComponent(name),
+  const searchOutcome = await getDemoSearchOutcome(
+    repo.id,
+    searchQuery,
+    Boolean(repo.active_snapshot_id) && repo.chunk_count > 0,
+    repo.active_snapshot_id,
   );
-
-  if (!repo || repo.user_id !== user.id) {
-    notFound();
-  }
-
-  const [searchOutcome, chats] = await Promise.all([
-    getSearchOutcome(
-      repo.id,
-      searchQuery,
-      Boolean(repo.active_snapshot_id) && repo.chunk_count > 0,
-    ),
-    listOwnedChats(repo.id),
-  ]);
-
-  if (requestedChatId && !chats.some((chat) => chat.id === requestedChatId)) {
-    notFound();
-  }
-
-  const activeChat =
-    chats.find((chat) => chat.id === requestedChatId) ?? chats[0] ?? null;
-  const persistedMessages = activeChat
-    ? await listChatMessages(activeChat.id)
-    : [];
-  const initialMessages = chatMessagesToUIMessages(persistedMessages);
-  const messageSnapshotIds = persistedMessages.flatMap((message) => [
-    ...(message.snapshot_id ? [message.snapshot_id] : []),
-    ...message.citations.map((citation) => citation.snapshotId),
-  ]);
-  const availableSnapshotIds = await listAvailableSnapshotIds(repo.id, [
-    ...(repo.active_snapshot_id ? [repo.active_snapshot_id] : []),
-    ...messageSnapshotIds,
-  ]);
 
   const viewedSnapshotId = requestedSnapshot ?? repo.active_snapshot_id;
   const viewedSnapshot = viewedSnapshotId
-    ? await getRepoSnapshot(repo.id, viewedSnapshotId)
+    ? await getDemoSnapshot(repo.id, viewedSnapshotId)
     : null;
   const requestedSnapshotUnavailable =
     Boolean(requestedSnapshot) && !viewedSnapshot;
   const files = viewedSnapshot
-    ? await listRepoFileMeta(repo.id, viewedSnapshot.id)
+    ? await listDemoFileMeta(repo.id, viewedSnapshot.id)
     : [];
 
   const selectedFile =
     selectedPath !== null && viewedSnapshot
-      ? await getRepoFileByPath(repo.id, selectedPath, viewedSnapshot.id)
+      ? await getDemoFileByPath(repo.id, selectedPath, viewedSnapshot.id)
       : null;
 
   const defaultFilePath = files[0]?.path ?? null;
   const fileToShow =
     selectedFile ??
     (selectedPath === null && defaultFilePath && viewedSnapshot
-      ? await getRepoFileByPath(repo.id, defaultFilePath, viewedSnapshot.id)
+      ? await getDemoFileByPath(repo.id, defaultFilePath, viewedSnapshot.id)
       : null);
   const activePath = selectedFile?.path ?? fileToShow?.path ?? null;
   const fileLineCount = fileToShow?.content.split("\n").length ?? 0;
@@ -136,10 +140,14 @@ export default async function RepoPage({
   return (
     <RepoWorkspace
       repo={repo}
-      chats={chats}
-      activeChatId={activeChat?.id ?? null}
-      initialMessages={initialMessages}
-      availableSnapshotIds={availableSnapshotIds}
+      demo
+      chats={[]}
+      activeChatId={null}
+      initialMessages={[]}
+      availableSnapshotIds={await listDemoSnapshotIds(repo.id, [
+        ...(repo.active_snapshot_id ? [repo.active_snapshot_id] : []),
+        ...(viewedSnapshot ? [viewedSnapshot.id] : []),
+      ])}
       files={files}
       fileToShow={fileToShow}
       selectedFile={selectedFile}

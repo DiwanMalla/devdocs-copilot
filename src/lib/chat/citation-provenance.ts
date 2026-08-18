@@ -34,6 +34,7 @@ export function buildCitationHref(
     owner: string;
     name: string;
     chatId: string | null;
+    basePath?: string | null;
   },
 ): string {
   return buildRepoWorkspaceHref({
@@ -46,5 +47,6 @@ export function buildCitationHref(
     },
     chatId: input.chatId,
     snapshotId: citation.snapshotId,
+    basePath: input.basePath,
   });
 }

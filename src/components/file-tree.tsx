@@ -73,6 +73,7 @@ function TreeItems({
   chatId,
   query,
   snapshotId,
+  basePath,
   depth,
 }: {
   nodes: TreeNode[];
@@ -82,6 +83,7 @@ function TreeItems({
   chatId: string | null;
   query: string | null;
   snapshotId: string | null;
+  basePath: string | null;
   depth: number;
 }) {
   return (
@@ -94,6 +96,7 @@ function TreeItems({
           chatId,
           query,
           snapshotId,
+          basePath,
         });
         const isSelected = node.type === "file" && node.path === selectedPath;
 
@@ -116,6 +119,7 @@ function TreeItems({
                   chatId={chatId}
                   query={query}
                   snapshotId={snapshotId}
+                  basePath={basePath}
                   depth={depth + 1}
                 />
               </div>
@@ -150,6 +154,7 @@ export function FileTree({
   chatId,
   query,
   snapshotId,
+  basePath,
 }: {
   files: RepoFileMeta[];
   owner: string;
@@ -158,6 +163,7 @@ export function FileTree({
   chatId?: string | null;
   query?: string | null;
   snapshotId?: string | null;
+  basePath?: string | null;
 }) {
   const tree = buildFileTree(files);
 
@@ -183,6 +189,7 @@ export function FileTree({
           chatId={chatId ?? null}
           query={query ?? null}
           snapshotId={snapshotId ?? null}
+          basePath={basePath ?? null}
           depth={0}
         />
       </nav>

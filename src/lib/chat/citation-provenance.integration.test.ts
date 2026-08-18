@@ -1,41 +1,22 @@
-import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { citationAvailability } from "./citation-provenance";
 import { chatMessagesToUIMessages } from "./messages";
 import type { ChatMessage, StructuredCitation } from "@/lib/supabase/types";
-
-function loadEnvLocal() {
-  try {
-    for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split(
-      "\n",
-    )) {
-      const trimmed = line.trim();
-      const separator = trimmed.indexOf("=");
-      if (!trimmed || trimmed.startsWith("#") || separator === -1) continue;
-      const key = trimmed.slice(0, separator);
-      if (!process.env[key]) process.env[key] = trimmed.slice(separator + 1);
-    }
-  } catch {
-    // Integration tests skip when local credentials are absent.
-  }
-}
+import {
+  canRunSupabaseIntegration,
+  createAnonClient,
+  createServiceClient,
+  loadEnvLocal,
+} from "@/test/integration";
 
 loadEnvLocal();
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const canRun = Boolean(url && anonKey && serviceRoleKey);
+const canRun = canRunSupabaseIntegration();
 
 describe.skipIf(!canRun)("persisted historical citation provenance", () => {
-  const admin = createClient(url!, serviceRoleKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const client = createClient(url!, anonKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  let admin: SupabaseClient;
+  let client: SupabaseClient;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const email = `citation-${suffix}@devdocs-copilot.test`;
   const password = "phase7-citation-test-pass-123";
@@ -46,6 +27,8 @@ describe.skipIf(!canRun)("persisted historical citation provenance", () => {
   let snapshotB = "";
 
   beforeAll(async () => {
+    admin = createServiceClient();
+    client = createAnonClient();
     const created = await admin.auth.admin.createUser({
       email,
       password,

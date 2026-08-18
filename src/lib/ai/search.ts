@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { retrieveRepoChunks } from "@/lib/chat/retrieval";
 import { MAX_RETRIEVAL_QUERY_CHARACTERS } from "@/lib/chat/limits";
 
@@ -19,6 +20,7 @@ export async function searchRepoChunks(
   query: string,
   limit = 8,
   snapshotId?: string | null,
+  client?: SupabaseClient,
 ): Promise<SemanticSearchResult[]> {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
@@ -36,6 +38,7 @@ export async function searchRepoChunks(
     query: normalizedQuery,
     snapshotId,
     limit,
+    client,
   });
   return result.chunks;
 }

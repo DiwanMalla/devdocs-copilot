@@ -1,6 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+function unquoteEnvValue(value) {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const quote = trimmed[0];
+    if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+
 const envLocalPath = path.join(process.cwd(), ".env.local");
 
 if (existsSync(envLocalPath)) {
@@ -10,7 +21,7 @@ if (existsSync(envLocalPath)) {
     if (!trimmed || trimmed.startsWith("#") || separator === -1) continue;
     const key = trimmed.slice(0, separator);
     if (!process.env[key]) {
-      process.env[key] = trimmed.slice(separator + 1);
+      process.env[key] = unquoteEnvValue(trimmed.slice(separator + 1));
     }
   }
 }

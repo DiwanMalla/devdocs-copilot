@@ -1,29 +1,14 @@
-import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-function loadEnvLocal() {
-  try {
-    for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split(
-      "\n",
-    )) {
-      const trimmed = line.trim();
-      const separator = trimmed.indexOf("=");
-      if (!trimmed || trimmed.startsWith("#") || separator === -1) continue;
-      const key = trimmed.slice(0, separator);
-      if (!process.env[key]) process.env[key] = trimmed.slice(separator + 1);
-    }
-  } catch {
-    // Integration tests skip when local credentials are absent.
-  }
-}
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  canRunSupabaseIntegration,
+  createServiceClient,
+  loadEnvLocal,
+} from "@/test/integration";
 
 loadEnvLocal();
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const canRun = Boolean(url && serviceRoleKey);
+const canRun = canRunSupabaseIntegration();
 
 type RpcRateLimitRow = {
   allowed: boolean;
@@ -32,13 +17,12 @@ type RpcRateLimitRow = {
 };
 
 describe.skipIf(!canRun)("atomic chat rate limit", () => {
-  const admin = createClient(url!, serviceRoleKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  let admin: SupabaseClient;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let userId = "";
 
   beforeAll(async () => {
+    admin = createServiceClient();
     const { data, error } = await admin.auth.admin.createUser({
       email: `chat-rate-limit-${suffix}@devdocs-copilot.test`,
       password: "phase7-rate-limit-test-pass-123",

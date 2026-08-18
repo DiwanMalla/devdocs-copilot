@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { embedQuery } from "@/lib/ai/embeddings";
 import type { SemanticSearchResult } from "@/lib/ai/search";
@@ -42,6 +43,7 @@ export async function retrieveRepoChunks(input: {
   query: string;
   snapshotId?: string | null;
   limit?: number;
+  client?: SupabaseClient;
 }): Promise<RetrievalResult> {
   const started = Date.now();
   const normalizedQuery = input.query.trim();
@@ -61,7 +63,7 @@ export async function retrieveRepoChunks(input: {
   }
 
   const queryEmbedding = await embedQuery(normalizedQuery);
-  const supabase = await createClient();
+  const supabase = input.client ?? (await createClient());
   const snapshotId = input.snapshotId ?? null;
 
   const [vectorResult, lexicalResult] = await Promise.all([

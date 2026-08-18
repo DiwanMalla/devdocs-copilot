@@ -43,6 +43,7 @@ function renderAnswerWithCitationLinks(
   chatId: string | null,
   message: RepoUIMessage,
   availableSnapshotIds: ReadonlySet<string>,
+  basePath?: string | null,
 ) {
   const parts: ReactNode[] = [];
   const citations = message.metadata?.citations ?? [];
@@ -75,7 +76,7 @@ function renderAnswerWithCitationLinks(
       parts.push(
         <CitationChip
           key={`${index}-${structured.chunkId}`}
-          href={buildCitationHref(structured, { owner, name, chatId })}
+          href={buildCitationHref(structured, { owner, name, chatId, basePath })}
           path={path}
           startLine={startLine}
           endLine={endLine}
@@ -114,6 +115,8 @@ export function RepoChat({
   disabled,
   path,
   query,
+  demo = false,
+  basePath,
 }: {
   owner: string;
   name: string;
@@ -124,6 +127,8 @@ export function RepoChat({
   disabled: boolean;
   path?: string | null;
   query?: string | null;
+  demo?: boolean;
+  basePath?: string | null;
 }) {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -177,7 +182,7 @@ export function RepoChat({
 
     let threadId = activeChatId;
 
-    if (!threadId) {
+    if (!threadId && !demo) {
       if (creatingRef.current) {
         return;
       }
@@ -213,10 +218,15 @@ export function RepoChat({
     await sendMessage(
       { text: trimmed },
       {
-        body: {
-          chatId: threadId,
-          requestId: crypto.randomUUID(),
-        },
+        body: demo
+          ? {
+              demo: true,
+              requestId: crypto.randomUUID(),
+            }
+          : {
+              chatId: threadId,
+              requestId: crypto.randomUUID(),
+            },
       },
     );
   }
@@ -232,7 +242,9 @@ export function RepoChat({
         <div>
           <h2 className="font-medium">Ask this repository</h2>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Answers use the indexed snapshot and cite exact source lines.
+            {demo
+              ? `Public demo of ${owner}/${name}. Answers cite the indexed snapshot — no account needed.`
+              : "Answers use the indexed snapshot and cite exact source lines."}
           </p>
         </div>
       </div>
@@ -308,6 +320,7 @@ export function RepoChat({
                             activeChatId,
                             message,
                             availableSnapshots,
+                            basePath,
                           )
                         : null}
                       {streamingThis ? (

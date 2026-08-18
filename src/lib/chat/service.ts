@@ -26,6 +26,8 @@ import {
   type RepoUIMessage,
 } from "@/lib/chat/messages";
 import { parseGitHubRepoInput } from "@/lib/github/parse-url";
+import { isDemoRepo } from "@/lib/demo/config";
+import { getDemoRepo } from "@/lib/demo/workspace";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
 import {
@@ -33,10 +35,11 @@ import {
   getRepoByOwnerName,
   listChatMessages,
 } from "@/lib/supabase/queries";
-import type {
-  ChatMessage,
-  Repo,
-  RepoChatMessageMetadata,
+import {
+  DEMO_OWNER_USER_ID,
+  type ChatMessage,
+  type Repo,
+  type RepoChatMessageMetadata,
 } from "@/lib/supabase/types";
 import {
   citationsAreValid,
@@ -323,22 +326,190 @@ function isStale(message: ChatMessage): boolean {
   return Date.now() - Date.parse(message.created_at) > STALE_GENERATION_MS;
 }
 
+async function handleDemoChat(input: {
+  request: Request;
+  requestBody: Record<string, unknown>;
+  correlationId: string;
+  started: number;
+}): Promise<Response> {
+  const { request, requestBody, correlationId, started } = input;
+  const { owner, name } = parseRepoFields(requestBody);
+  if (!isDemoRepo(owner, name)) {
+    throw new ChatRequestError(
+      "Demo chat is only available for the sample repository.",
+      403,
+      "unauthorized",
+    );
+  }
+
+  const repo = await getDemoRepo();
+  if (!repo) {
+    throw new ChatRequestError("Demo repository has not been ingested.", 404, "not_found");
+  }
+  if (!repo.active_snapshot_id || repo.chunk_count < 1) {
+    throw new ChatRequestError(
+      "The sample repository is still indexing. Refresh in a moment.",
+      400,
+      "not_ready",
+    );
+  }
+
+  const messages = Array.isArray(requestBody.messages)
+    ? (requestBody.messages as UIMessage[])
+    : [];
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  if (!latestUserMessage) {
+    throw new ChatRequestError("A user question is required.");
+  }
+  if (
+    latestUserMessage.parts?.some(
+      (part) => part.type !== "text" && part.type !== undefined,
+    )
+  ) {
+    throw new ChatRequestError("Only text questions are supported.");
+  }
+
+  const question = validateQuestion(getMessageText(latestUserMessage));
+  const rateLimit = await consumeChatRateLimit(DEMO_OWNER_USER_ID);
+  if (!rateLimit.allowed) {
+    chatLog({
+      event: "chat_rate_limited",
+      correlationId,
+      userId: "demo",
+      repoId: repo.id,
+    });
+    return rateLimitExceededResponse(rateLimit);
+  }
+
+  const history = (messages as RepoUIMessage[]).slice(-12);
+  const admin = createAdminClient();
+  const retrieval = await retrieveRepoChunks({
+    repoId: repo.id,
+    query: question,
+    snapshotId: repo.active_snapshot_id,
+    client: admin,
+  });
+
+  chatLog({
+    event: "chat_retrieval",
+    correlationId,
+    userId: "demo",
+    repoId: repo.id,
+    snapshotId: repo.active_snapshot_id,
+    durationMs: retrieval.diagnostics.durationMs,
+    vectorCount: retrieval.diagnostics.vectorCount,
+    lexicalCount: retrieval.diagnostics.lexicalCount,
+    selectedCount: retrieval.diagnostics.selectedChunkIds.length,
+  });
+
+  if (retrieval.chunks.length === 0) {
+    chatLog({
+      event: "chat_no_evidence",
+      correlationId,
+      userId: "demo",
+      repoId: repo.id,
+      durationMs: Date.now() - started,
+    });
+    return replayAnswer(INSUFFICIENT_EVIDENCE_MESSAGE, history, {
+      snapshotId: repo.active_snapshot_id,
+      citations: [],
+    });
+  }
+
+  const modelMessages = await convertToModelMessages(history);
+  let responseMetadata: RepoChatMessageMetadata = {
+    snapshotId: repo.active_snapshot_id,
+    citations: [],
+  };
+
+  const result = streamText({
+    model: getChatModel(),
+    system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks),
+    messages: modelMessages,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    abortSignal: request.signal,
+    maxRetries: 2,
+    timeout: CHAT_GENERATION_TIMEOUT,
+    providerOptions: {
+      openrouter: openRouterChatProviderOptions(),
+    },
+    onFinish: ({ text }) => {
+      const normalized = normalizeAnswerCitations(text, retrieval.chunks);
+      const citations = extractStructuredCitations(
+        text,
+        retrieval.chunks,
+        repo.active_snapshot_id as string,
+      );
+      const valid =
+        normalized !== INSUFFICIENT_EVIDENCE_MESSAGE &&
+        citations.length > 0 &&
+        citationsAreValid(
+          citations,
+          retrieval.chunks,
+          repo.active_snapshot_id as string,
+        );
+      responseMetadata = {
+        snapshotId: repo.active_snapshot_id,
+        citations: valid ? citations : [],
+      };
+      chatLog({
+        event: "chat_complete",
+        correlationId,
+        userId: "demo",
+        repoId: repo.id,
+        snapshotId: repo.active_snapshot_id,
+        durationMs: Date.now() - started,
+        citationCount: valid ? citations.length : 0,
+        grounded: valid,
+      });
+    },
+  });
+
+  return result.toUIMessageStreamResponse({
+    originalMessages: history,
+    messageMetadata: ({ part }) =>
+      part.type === "start" || part.type === "finish"
+        ? responseMetadata
+        : undefined,
+    onError: (error) => {
+      chatError({
+        event: "chat_provider_failed",
+        correlationId,
+        userId: "demo",
+        repoId: repo.id,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return "The model could not complete this answer. Please try again.";
+    },
+  });
+}
+
 export async function handleChatRequest(request: Request): Promise<Response> {
   const correlationId = crypto.randomUUID();
   const started = Date.now();
 
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      throw new ChatRequestError("Authentication required.", 401, "unauthorized");
-    }
-
-    const body: unknown = await request.json();
+    const body: unknown = await request.json().catch(() => null);
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       throw new ChatRequestError("Invalid chat request.");
     }
 
     const requestBody = body as Record<string, unknown>;
+    if (requestBody.demo === true) {
+      return await handleDemoChat({
+        request,
+        requestBody,
+        correlationId,
+        started,
+      });
+    }
+
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      throw new ChatRequestError("Authentication required.", 401, "unauthorized");
+    }
     const { owner, name } = parseRepoFields(requestBody);
     if (typeof requestBody.chatId !== "string" || !requestBody.chatId) {
       throw new ChatRequestError("A chat thread is required.");

@@ -1,38 +1,16 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { afterAll, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEMO_OWNER_USER_ID } from "./types";
-
-function loadEnvLocal() {
-  const envPath = resolve(process.cwd(), ".env.local");
-  try {
-    for (const line of readFileSync(envPath, "utf8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) {
-        continue;
-      }
-      const separator = trimmed.indexOf("=");
-      if (separator === -1) {
-        continue;
-      }
-      const key = trimmed.slice(0, separator);
-      const value = trimmed.slice(separator + 1);
-      if (!process.env[key]) {
-        process.env[key] = value;
-      }
-    }
-  } catch {
-    // Tests skip when local env is absent.
-  }
-}
+import {
+  canRunSupabaseIntegration,
+  createAnonClient,
+  createServiceClient,
+  loadEnvLocal,
+} from "@/test/integration";
 
 loadEnvLocal();
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const canRun = Boolean(url && anonKey && serviceRoleKey);
+const canRun = canRunSupabaseIntegration();
 
 const UNIT_EMBEDDING = `[1,${Array.from({ length: 1535 }, () => 0).join(",")}]`;
 
@@ -53,9 +31,7 @@ async function createTestUser(
 }
 
 describe.skipIf(!canRun)("workspace ownership isolation", () => {
-  const admin = createClient(url!, serviceRoleKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  let admin: SupabaseClient;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const password = "phase5-test-pass-123";
   const emailA = `phase5-a-${suffix}@devdocs-copilot.test`;
@@ -63,6 +39,10 @@ describe.skipIf(!canRun)("workspace ownership isolation", () => {
   const createdUserIds: string[] = [];
   let repoId = "";
   let chatId = "";
+
+  beforeAll(() => {
+    admin = createServiceClient();
+  });
 
   afterAll(async () => {
     if (repoId) {
@@ -171,12 +151,8 @@ describe.skipIf(!canRun)("workspace ownership isolation", () => {
     expect(chatError).toBeNull();
     chatId = chat?.id ?? "";
 
-    const clientA = createClient(url!, anonKey!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const clientB = createClient(url!, anonKey!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const clientA = createAnonClient();
+    const clientB = createAnonClient();
 
     const signedInA = await clientA.auth.signInWithPassword({
       email: emailA,
