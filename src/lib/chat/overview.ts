@@ -2,21 +2,12 @@ import { chunkSource } from "@/lib/ai/chunking";
 import type { SemanticSearchResult } from "@/lib/ai/search";
 import {
   isPackageJsonPath,
-  isPrioritySourcePath,
   isReadmePath,
 } from "@/lib/repo/priority-paths";
 import { REPO_OVERVIEW_PATH } from "./overview-question";
 
 const OVERVIEW_CHUNK_PREFIX = "repo-overview";
 const FALLBACK_LIMIT = 10;
-
-export type RepoOverviewSource = {
-  repoId: string;
-  owner: string;
-  name: string;
-  description: string | null;
-  summary: string | null;
-};
 
 export function parsePackageJsonDescription(content: string): string | null {
   try {
@@ -134,13 +125,6 @@ export function buildFallbackOverviewAnswer(input: {
   );
 
   return [intro, body, citation].filter(Boolean).join("\n\n").trim();
-}
-
-export function hasOverviewEvidence(chunks: SemanticSearchResult[]): boolean {
-  return chunks.some(
-    (chunk) =>
-      chunk.path === REPO_OVERVIEW_PATH || isPrioritySourcePath(chunk.path),
-  );
 }
 
 function excerpt(content: string, max = 700): string {

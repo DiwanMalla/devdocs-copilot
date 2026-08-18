@@ -83,4 +83,24 @@ describe("historical citation provenance", () => {
     expect(resolved.unavailable).toBe(false);
     expect(resolved.href).toContain("path=README.md");
   });
+
+  it("opens GitHub when the cited path is missing from the snapshot", () => {
+    const resolved = resolveCitationTarget({
+      path: "missing.ts",
+      startLine: 1,
+      endLine: 4,
+      structured: null,
+      availableSnapshotIds: new Set(["snapshot-a"]),
+      indexedPaths: new Set(["README.md"]),
+      owner: "acme",
+      name: "docs",
+      chatId: null,
+      githubRepoUrl: "https://github.com/acme/docs",
+      githubRef: "main",
+    });
+
+    expect(resolved.unavailable).toBe(true);
+    expect(resolved.href).toBeUndefined();
+    expect(resolved.fallbackHref).toContain("github.com/acme/docs");
+  });
 });
