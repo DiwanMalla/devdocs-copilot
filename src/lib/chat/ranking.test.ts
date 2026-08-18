@@ -1,3 +1,4 @@
+import { isPrioritySourcePath } from "@/lib/repo/priority-paths";
 import { describe, expect, it } from "vitest";
 import {
   diversifyRankedChunks,
@@ -95,8 +96,28 @@ describe("diversifyRankedChunks", () => {
     const authCount = selected.filter((chunk) => chunk.path === "src/auth.ts").length;
     expect(authCount).toBeLessThanOrEqual(2);
     expect(selected.some((chunk) => chunk.path === "README.md")).toBe(true);
-    expect(selected.every((chunk) => chunk.hybridScore >= MIN_HYBRID_SCORE)).toBe(
-      true,
+    expect(
+      selected
+        .filter((chunk) => !isPrioritySourcePath(chunk.path))
+        .every((chunk) => chunk.hybridScore >= MIN_HYBRID_SCORE),
+    ).toBe(true);
+  });
+
+  it("keeps a low-scoring README instead of dropping it", () => {
+    const weakReadme: RetrievalCandidate = {
+      chunk_id: "readme-weak",
+      file_id: "f-readme",
+      path: "README.md",
+      language: "md",
+      start_line: 1,
+      end_line: 4,
+      content: "# App",
+      similarity: 0.02,
+    };
+    const selected = diversifyRankedChunks(
+      mergeHybridCandidates([weakReadme, vector[0]!], []),
+      4,
     );
+    expect(selected.some((chunk) => chunk.path === "README.md")).toBe(true);
   });
 });

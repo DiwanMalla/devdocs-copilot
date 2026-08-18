@@ -80,9 +80,13 @@ describe("normalizeAnswerCitations", () => {
     ).toBe(INSUFFICIENT_EVIDENCE_MESSAGE);
   });
 
-  it("returns the insufficient-evidence message when no chunks were retrieved", () => {
-    expect(normalizeAnswerCitations("Anything at all [S1].", [])).toBe(
-      INSUFFICIENT_EVIDENCE_MESSAGE,
-    );
+  it("keeps uncited overview answers instead of refusing", () => {
+    expect(
+      normalizeAnswerCitations(
+        "This repository is a grounded GitHub copilot.",
+        chunks,
+        { allowUncited: true },
+      ),
+    ).toBe("This repository is a grounded GitHub copilot.");
   });
 });

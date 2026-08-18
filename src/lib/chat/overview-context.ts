@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { SemanticSearchResult } from "@/lib/ai/search";
-import { isPrioritySourcePath } from "@/lib/repo/priority-paths";
+import { isPrioritySourcePath, isReadmePath } from "@/lib/repo/priority-paths";
 import type { Repo } from "@/lib/supabase/types";
 import type { RetrievalResult } from "./retrieval";
 import { retrieveRepoChunks } from "./retrieval";
@@ -154,14 +154,13 @@ async function loadPriorityFiles(
 }
 
 function priorityRank(path: string): number {
-  const lower = path.toLowerCase();
-  if (/^readme(\.[a-z0-9]+)?$/.test(lower.split("/").pop() ?? "")) {
+  if (isReadmePath(path)) {
     return 0;
   }
-  if (lower === "package.json") {
+  if (path.toLowerCase() === "package.json") {
     return 1;
   }
-  if (lower.startsWith("docs/")) {
+  if (path.toLowerCase().startsWith("docs/")) {
     return 2;
   }
   return 3;

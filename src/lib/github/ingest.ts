@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { IngestJob, Repo } from "@/lib/supabase/types";
 import { indexRepoFiles } from "@/lib/ai/index-repo";
+import { generateAndStoreRepoSummary } from "@/lib/ai/repo-summary";
 import { INGEST_LOCK_MS, SNAPSHOT_RETENTION } from "@/lib/chat/limits";
 import { shouldSkipReindex } from "./reindex";
 import {
@@ -422,9 +423,6 @@ async function processClaimedIngestJob(
         .select("description")
         .eq("id", job.repo_id)
         .maybeSingle();
-      const { generateAndStoreRepoSummary } = await import(
-        "@/lib/ai/repo-summary"
-      );
       await generateAndStoreRepoSummary({
         repoId: job.repo_id,
         owner: job.owner,
