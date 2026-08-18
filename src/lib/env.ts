@@ -5,8 +5,6 @@ const REQUIRED_APP_ENV = [
   "OPENROUTER_API_KEY",
 ] as const;
 
-const REQUIRED_WORKER_ENV = [...REQUIRED_APP_ENV, "CRON_SECRET"] as const;
-
 type EnvKey = (typeof REQUIRED_APP_ENV)[number];
 
 export function listMissingEnv(
@@ -48,8 +46,4 @@ export function validateAppEnv(): void {
 
 export function requiredAppEnvKeys(): readonly EnvKey[] {
   return REQUIRED_APP_ENV;
-}
-
-export function validateWorkerEnv(): void {
-  validateRequiredEnv(REQUIRED_WORKER_ENV);
 }

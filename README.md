@@ -8,7 +8,7 @@ Ask questions about any GitHub repository and get grounded answers with exact fi
 
 No account. No API keys. This repository is already indexed — ask a question and click a citation.
 
-Locally, the same path is [http://localhost:3000/demo](http://localhost:3000/demo) after the app has Supabase + OpenRouter configured. The first visit enqueues the sample snapshot; the durable `/api/index` worker finishes indexing.
+Locally, the same path is [http://localhost:3000/demo](http://localhost:3000/demo) after the app has Supabase + OpenRouter configured. The first visit enqueues the sample snapshot; indexing finishes through `/api/index` (no Vercel Cron).
 
 ## What this project does
 
@@ -117,9 +117,9 @@ flowchart TD
     EMB --> PGV[pgvector HNSW index]
     PGV --> SEARCH[similarity search<br/>public.match_chunks]
     SEARCH --> OR[OpenRouter]
-    OR --> LLM[openai/gpt-oss-20b:free]
+    OR --> LLM["openai/gpt-oss-20b:free"]
     LLM --> ANSWER[grounded answer]
-    ANSWER --> CITE[[path:Lstart-Lend] citations]
+    ANSWER --> CITE["[path:Lstart-Lend] citations"]
     CITE --> EXPLORER[code explorer<br/>highlighted local lines]
     CITE --> GHLINK[GitHub commit and line link]
 ```
@@ -154,7 +154,7 @@ flowchart TD
     METHOD --> GH[GitHub OAuth]
     METHOD --> EMAIL[Email sign-in]
     METHOD --> SIGNUP[Email sign-up and confirmation]
-    GH --> CALLBACK[/auth/callback]
+    GH --> CALLBACK["/auth/callback"]
     SIGNUP --> CALLBACK
     EMAIL --> SESSION
     CALLBACK --> SESSION[authenticated cookie session]
@@ -196,7 +196,11 @@ flowchart TD
    remove their old chunks.
 7. Source files are inserted in batches of 40.
 8. The repository moves from `ingesting` to `indexing`; chunks and embeddings
-   are generated and inserted.
+   are generated and inserted. Indexing is started on demand from **Index
+   repository** / **Re-index**, or by a signed-in `GET`/`POST` to `/api/index`.
+   There is no Vercel Cron schedule (Hobby plans cannot run production crons).
+   Repeated worker ticks are safe: jobs are claimed with a lease, unchanged
+   SHA re-index is skipped, and an empty queue returns `{ status: "idle" }`.
 9. A successful run records `file_count`, `chunk_count`, `commit_sha`,
    `last_indexed_at`, and status `ready`. Failures record status `failed` and an
    error message.
@@ -556,10 +560,9 @@ Anything prefixed with `NEXT_PUBLIC_` is included in the browser bundle.
 | --- | --- | --- |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Privileged ingestion/indexing writes and RLS integration-test setup |
 | `OPENROUTER_API_KEY` | Yes for ingestion, search, and chat | `openai/text-embedding-3-small` and `openai/gpt-oss-20b:free` through OpenRouter |
-| `CRON_SECRET` | Yes | Protects the durable `/api/index` worker route |
 | `GITHUB_TOKEN` | No, recommended | Raises GitHub REST API limits; sent only by the server-side GitHub client |
 
-`SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`, `CRON_SECRET`, and `GITHUB_TOKEN` must not use
+`SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`, and `GITHUB_TOKEN` must not use
 the `NEXT_PUBLIC_` prefix.
 
 ### Template variable currently not consumed
@@ -693,10 +696,12 @@ The production build includes `/`, `/login`, `/dashboard`, `/demo`,
   remaining files in alphabetical path order and skips files over 200 KiB.
   GitHub's recursive-tree `truncated` flag is currently ignored, so very large
   repositories can produce incomplete snapshots without a dedicated error.
-- **Synchronous ingestion.** Fetching, embedding, and database writes happen in
-  the request/server-action lifecycle rather than a durable background queue.
-  The home page allows up to 300 seconds; the chat route allows 60. Large
-  repositories can still hit platform execution limits or provider quotas.
+- **On-demand ingestion.** Fetching, embedding, and database writes run in a
+  leased ingest job started from the UI or `/api/index`, not a Vercel Cron.
+  The index route allows up to 300 seconds. Large repositories can still hit
+  platform execution limits or provider quotas. Repeating `/api/index` is
+  idempotent: a second concurrent claim returns `idle`, and Re-index skips an
+  unchanged ready SHA.
 - **SHA skip is Re-index only.** The dashboard Re-index button skips work when
   the ready snapshot already matches the current default-branch commit. Adding
   the same repository from the ingest form rebuilds it.

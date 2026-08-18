@@ -129,6 +129,7 @@ export function RepoWorkspace({
 
       <RepoStatusRefresh
         active={repo.status === "ingesting" || repo.status === "indexing"}
+        kickWorker={!demo}
       />
 
       <div className="bg-card grid h-[min(40rem,calc(100dvh-9rem))] overflow-hidden rounded-xl ring-1 ring-foreground/10 max-lg:grid-rows-[10rem_minmax(0,1fr)] lg:h-128 lg:grid-cols-[220px_1fr]">

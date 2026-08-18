@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { IngestJob, Repo } from "@/lib/supabase/types";
 import { indexRepoFiles } from "@/lib/ai/index-repo";
@@ -238,6 +239,7 @@ export async function enqueueGitHubRepoIngest(
     throw new Error(jobError?.message ?? "Could not queue indexing.");
   }
 
+  kickIngestWorker();
   return { repo: repo as Repo, unchanged: false, jobId: job.id as string };
 }
 
@@ -458,4 +460,16 @@ export async function processNextIngestJob(
     return { jobId: null, status: "idle" };
   }
   return await processClaimedIngestJob(job, workerId);
+}
+
+export function kickIngestWorker(): void {
+  try {
+    after(() => {
+      void processNextIngestJob().catch((error: unknown) => {
+        console.error("Indexing worker failed", error);
+      });
+    });
+  } catch (error) {
+    console.error("Could not schedule indexing worker", error);
+  }
 }

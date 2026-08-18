@@ -11,7 +11,6 @@ import {
 } from "@/test/integration";
 
 loadEnvLocal();
-process.env.CRON_SECRET ??= "test-cron-secret-phase7-p13";
 process.env.OPENROUTER_API_KEY ??= "test-openrouter-key";
 
 const SOURCE_FILE = "export function hello() {\n  return 1;\n}\n";
@@ -46,14 +45,23 @@ vi.mock("@/lib/ai/embeddings", async (importOriginal) => {
   };
 });
 
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return {
+    ...actual,
+    after: vi.fn(),
+  };
+});
+
 const canRun = canRunSupabaseIntegration();
 
 describe("GET /api/index authorization", () => {
-  it("rejects worker requests without the cron secret", async () => {
+  it("rejects indexing requests without a signed-in user", async () => {
+    mocks.getAuthenticatedUser.mockResolvedValueOnce(null);
     const { GET } = await import("./route");
-    const response = await GET(new Request("http://localhost/api/index"));
+    const response = await GET();
     expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Worker authorization required.");
+    expect(await response.text()).toBe("Authentication required.");
   });
 });
 
@@ -114,12 +122,6 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
     await deleteFixture(admin, fixture);
   });
 
-  function workerRequest() {
-    return new Request("http://localhost/api/index", {
-      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
-    });
-  }
-
   async function createJob(maxAttempts = 3) {
     await admin
       .from("ingest_jobs")
@@ -172,7 +174,7 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
 
   it("claims a queued job, indexes mocked sources, and activates the snapshot", async () => {
     const job = await createJob();
-    const response = await GET(workerRequest());
+    const response = await GET();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       jobId: job.id,
@@ -201,7 +203,7 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
 
   it("lets only one concurrent worker claim the same job", async () => {
     const job = await createJob();
-    const [first, second] = await Promise.all([GET(workerRequest()), GET(workerRequest())]);
+    const [first, second] = await Promise.all([GET(), GET()]);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     const bodies = [await first.json(), await second.json()];
@@ -231,7 +233,7 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
       .update({ lease_expires_at: new Date(Date.now() - 1_000).toISOString() })
       .eq("id", job.id);
 
-    const response = await GET(workerRequest());
+    const response = await GET();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       jobId: job.id,
@@ -256,7 +258,7 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
       .update({ lease_expires_at: new Date(Date.now() - 1_000).toISOString() })
       .eq("id", job.id);
 
-    const response = await GET(workerRequest());
+    const response = await GET();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       jobId: null,
@@ -277,7 +279,7 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
   it("records a retryable worker failure when the mocked GitHub provider fails", async () => {
     const job = await createJob();
     mocks.fetchGitTree.mockRejectedValueOnce(new Error("GitHub unavailable"));
-    const response = await GET(workerRequest());
+    const response = await GET();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       jobId: job.id,
@@ -304,6 +306,22 @@ describe.skipIf(!canRun).sequential("GET/POST /api/index against Supabase", () =
     });
     const stored = await loadJob(job.id);
     expect(stored.status).toBe("queued");
+    expect(mocks.fetchGitTree).not.toHaveBeenCalled();
+  });
+
+  it("returns idle on repeated GET when the queue is empty", async () => {
+    await admin
+      .from("ingest_jobs")
+      .delete()
+      .eq("repo_id", fixture.repoId)
+      .in("status", ["queued", "running"]);
+
+    const first = await GET();
+    const second = await GET();
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    await expect(first.json()).resolves.toEqual({ jobId: null, status: "idle" });
+    await expect(second.json()).resolves.toEqual({ jobId: null, status: "idle" });
     expect(mocks.fetchGitTree).not.toHaveBeenCalled();
   });
 

@@ -1,21 +1,18 @@
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processNextIngestJob } from "@/lib/github/ingest";
-import { validateWorkerEnv } from "@/lib/env";
+import { kickIngestWorker, processNextIngestJob } from "@/lib/github/ingest";
+import { validateAppEnv } from "@/lib/env";
 import { bootstrap } from "@/server/bootstrap";
 
 bootstrap();
 
 export const maxDuration = 300;
 
-export async function GET(request: Request): Promise<Response> {
-  validateWorkerEnv();
-  const cronSecret = process.env.CRON_SECRET;
-  if (
-    !cronSecret ||
-    request.headers.get("authorization") !== `Bearer ${cronSecret}`
-  ) {
-    return new Response("Worker authorization required.", { status: 401 });
+export async function GET(): Promise<Response> {
+  validateAppEnv();
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return new Response("Authentication required.", { status: 401 });
   }
 
   try {
@@ -28,7 +25,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  validateWorkerEnv();
+  validateAppEnv();
   const user = await getAuthenticatedUser();
   if (!user) {
     return new Response("Authentication required.", { status: 401 });
@@ -56,5 +53,6 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("Indexing job not found.", { status: 404 });
   }
 
+  kickIngestWorker();
   return Response.json({ accepted: true, status: job.status });
 }

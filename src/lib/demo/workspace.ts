@@ -1,7 +1,6 @@
 import "server-only";
 
-import { after } from "next/server";
-import { enqueueGitHubRepoIngest, processNextIngestJob } from "@/lib/github/ingest";
+import { enqueueGitHubRepoIngest, kickIngestWorker } from "@/lib/github/ingest";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import {
@@ -16,14 +15,6 @@ import {
   DEMO_REPO_OWNER,
   isReadyDemoSnapshot,
 } from "./config";
-
-function kickDemoIngestWorker(): void {
-  after(() =>
-    processNextIngestJob().catch((error: unknown) => {
-      console.error("Demo indexing worker failed", error);
-    }),
-  );
-}
 
 export async function getDemoRepo(): Promise<Repo | null> {
   if (!hasSupabaseConfig()) {
@@ -56,7 +47,7 @@ export async function ensureDemoRepo(): Promise<Repo> {
     existing &&
     (existing.status === "ingesting" || existing.status === "indexing")
   ) {
-    kickDemoIngestWorker();
+    kickIngestWorker();
     return existing;
   }
 
@@ -73,7 +64,7 @@ export async function ensureDemoRepo(): Promise<Repo> {
       DEMO_REPO_OWNER,
       DEMO_REPO_NAME,
     );
-    kickDemoIngestWorker();
+    kickIngestWorker();
     return queued.repo;
   } catch (error) {
     const raced = await getDemoRepo();
@@ -83,7 +74,7 @@ export async function ensureDemoRepo(): Promise<Repo> {
         raced.status === "indexing" ||
         isReadyDemoSnapshot(raced)
       ) {
-        kickDemoIngestWorker();
+        kickIngestWorker();
         return raced;
       }
     }

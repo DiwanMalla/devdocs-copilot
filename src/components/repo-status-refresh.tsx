@@ -3,7 +3,13 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export function RepoStatusRefresh({ active }: { active: boolean }) {
+export function RepoStatusRefresh({
+  active,
+  kickWorker = false,
+}: {
+  active: boolean;
+  kickWorker?: boolean;
+}) {
   const router = useRouter();
 
   useEffect(() => {
@@ -11,12 +17,17 @@ export function RepoStatusRefresh({ active }: { active: boolean }) {
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const tick = () => {
+      if (kickWorker) {
+        void fetch("/api/index", { method: "GET" });
+      }
       router.refresh();
-    }, 4_000);
+    };
 
+    tick();
+    const timer = window.setInterval(tick, 4_000);
     return () => window.clearInterval(timer);
-  }, [active, router]);
+  }, [active, kickWorker, router]);
 
   return null;
 }

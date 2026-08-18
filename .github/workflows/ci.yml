@@ -68,7 +68,6 @@ jobs:
             `NEXT_PUBLIC_SUPABASE_ANON_KEY=${pairs.ANON_KEY ?? ""}`,
             `SUPABASE_SERVICE_ROLE_KEY=${pairs.SERVICE_ROLE_KEY ?? ""}`,
             "NEXT_PUBLIC_SITE_URL=http://localhost:3000",
-            "CRON_SECRET=ci-cron-secret",
             "OPENROUTER_API_KEY=ci-openrouter-key",
             "OPENROUTER_CHAT_FALLBACK_MODEL=",
             "GITHUB_TOKEN=",
