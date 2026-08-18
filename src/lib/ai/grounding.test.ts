@@ -89,4 +89,10 @@ describe("normalizeAnswerCitations", () => {
       ),
     ).toBe("This repository is a grounded GitHub copilot.");
   });
+
+  it("returns the insufficient-evidence message when no chunks were retrieved", () => {
+    expect(normalizeAnswerCitations("Anything at all [S1].", [])).toBe(
+      INSUFFICIENT_EVIDENCE_MESSAGE,
+    );
+  });
 });
