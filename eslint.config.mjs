@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "node_modules/**",
+    // Supabase CLI generated runtimes — never lint these.
+    "supabase/.temp/**",
+    "supabase/.branches/**",
+    "supabase/.output/**",
   ]),
 ]);
 

@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "verify:migrations": "node ./scripts/verify-migrations.mjs",
     "ci": "npm run verify:migrations && npm run check-env && npm run lint && npm run typecheck && npm test && npm run build",
-    "lint": "eslint",
+    "lint": "eslint src",
     "test": "vitest run"
   },
   "dependencies": {
