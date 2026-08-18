@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnvAssignments, unquoteEnvValue } from "./integration";
+import { deleteFixture, parseEnvAssignments, unquoteEnvValue } from "./integration";
 
 describe("unquoteEnvValue", () => {
   it("strips matching double and single quotes", () => {
@@ -31,5 +31,17 @@ describe("parseEnvAssignments", () => {
       ANON_KEY: "anon-key",
       SERVICE_ROLE_KEY: "service-key",
     });
+  });
+});
+
+describe("deleteFixture", () => {
+  it("skips cleanup when beforeAll never created a client or fixture", async () => {
+    await expect(deleteFixture(undefined, undefined)).resolves.toBeUndefined();
+  });
+});
+
+describe("Node WebSocket polyfill", () => {
+  it("provides a WebSocket constructor for supabase-js", () => {
+    expect(typeof globalThis.WebSocket).toBe("function");
   });
 });

@@ -12,8 +12,7 @@ import { ThinkingIndicator } from "@/components/thinking-indicator";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  buildCitationHref,
-  citationAvailability,
+  resolveCitationTarget,
   findStructuredCitation,
 } from "@/lib/chat/citation-provenance";
 import { MAX_QUESTION_CHARACTERS } from "@/lib/chat/limits";
@@ -31,9 +30,9 @@ function messageText(message: RepoUIMessage): string {
 const CITATION_PATTERN = /\[([^\]\n]+):L(\d+)-L(\d+)\]/g;
 
 const STARTER_PROMPTS = [
-  "Where is authentication handled?",
-  "How does repository ingestion work?",
-  "What should I read first in this codebase?",
+  "What is this project?",
+  "How does it work?",
+  "What are the main features?",
 ];
 
 function renderAnswerWithCitationLinks(
@@ -43,6 +42,9 @@ function renderAnswerWithCitationLinks(
   chatId: string | null,
   message: RepoUIMessage,
   availableSnapshotIds: ReadonlySet<string>,
+  indexedPaths: ReadonlySet<string>,
+  githubRepoUrl?: string | null,
+  githubRef?: string | null,
   basePath?: string | null,
 ) {
   const parts: ReactNode[] = [];
@@ -68,33 +70,32 @@ function renderAnswerWithCitationLinks(
       startLine,
       endLine,
     );
+    const resolved = resolveCitationTarget({
+      path,
+      startLine,
+      endLine,
+      structured,
+      availableSnapshotIds,
+      indexedPaths,
+      owner,
+      name,
+      chatId,
+      basePath,
+      githubRepoUrl,
+      githubRef,
+    });
 
-    if (
-      structured &&
-      citationAvailability(structured, availableSnapshotIds) === "available"
-    ) {
-      parts.push(
-        <CitationChip
-          key={`${index}-${structured.chunkId}`}
-          href={buildCitationHref(structured, { owner, name, chatId, basePath })}
-          path={path}
-          startLine={startLine}
-          endLine={endLine}
-        />,
-      );
-    } else if (structured) {
-      parts.push(
-        <CitationChip
-          key={`${index}-${structured.chunkId}`}
-          path={path}
-          startLine={startLine}
-          endLine={endLine}
-          unavailable
-        />,
-      );
-    } else {
-      parts.push(citation);
-    }
+    parts.push(
+      <CitationChip
+        key={`${index}-${path}-${startLine}-${endLine}`}
+        href={resolved.href}
+        fallbackHref={resolved.fallbackHref}
+        path={path}
+        startLine={startLine}
+        endLine={endLine}
+        unavailable={resolved.unavailable}
+      />,
+    );
     cursor = index + citation.length;
   }
 
@@ -111,6 +112,9 @@ export function RepoChat({
   repoId,
   chatId,
   availableSnapshotIds,
+  indexedPaths,
+  githubRepoUrl,
+  githubRef,
   initialMessages,
   disabled,
   path,
@@ -123,6 +127,9 @@ export function RepoChat({
   repoId: string;
   chatId: string | null;
   availableSnapshotIds: string[];
+  indexedPaths: string[];
+  githubRepoUrl?: string | null;
+  githubRef?: string | null;
   initialMessages: RepoUIMessage[];
   disabled: boolean;
   path?: string | null;
@@ -159,6 +166,7 @@ export function RepoChat({
     () => new Set(availableSnapshotIds),
     [availableSnapshotIds],
   );
+  const indexedPathSet = useMemo(() => new Set(indexedPaths), [indexedPaths]);
   const lastMessage = messages[messages.length - 1];
   const lastAssistantIsStreaming =
     status === "streaming" && lastMessage?.role === "assistant";
@@ -320,6 +328,9 @@ export function RepoChat({
                             activeChatId,
                             message,
                             availableSnapshots,
+                            indexedPathSet,
+                            githubRepoUrl,
+                            githubRef,
                             basePath,
                           )
                         : null}

@@ -10,9 +10,11 @@ import {
   fetchGitHubRepo,
   fetchGitTree,
 } from "./client";
+import { isAlwaysIndexPath } from "@/lib/repo/priority-paths";
 import {
   isLikelyBinaryContent,
   MAX_FILE_BYTES,
+  MAX_PRIORITY_FILE_BYTES,
   shouldSkipPath,
 } from "./filters";
 import { languageFromPath } from "./languages";
@@ -76,7 +78,16 @@ export async function collectIngestibleFiles(
   const candidates = tree.entries
     .filter((entry) => entry.type === "blob")
     .filter((entry) => !shouldSkipPath(entry.path))
-    .filter((entry) => (entry.size ?? 0) > 0 && (entry.size ?? 0) <= MAX_FILE_BYTES);
+    .filter((entry) => {
+      const size = entry.size ?? 0;
+      if (size <= 0) {
+        return false;
+      }
+      const maxBytes = isAlwaysIndexPath(entry.path)
+        ? MAX_PRIORITY_FILE_BYTES
+        : MAX_FILE_BYTES;
+      return size <= maxBytes;
+    });
 
   assertIndexableTree({
     truncated: tree.truncated,
@@ -405,6 +416,26 @@ async function processClaimedIngestJob(
       fileCount: files.length,
       chunkCount,
     });
+    try {
+      const { data: repoRow } = await admin
+        .from("repos")
+        .select("description")
+        .eq("id", job.repo_id)
+        .maybeSingle();
+      const { generateAndStoreRepoSummary } = await import(
+        "@/lib/ai/repo-summary"
+      );
+      await generateAndStoreRepoSummary({
+        repoId: job.repo_id,
+        owner: job.owner,
+        name: job.name,
+        description:
+          typeof repoRow?.description === "string" ? repoRow.description : null,
+        files,
+      });
+    } catch (error) {
+      console.error("Repository summary generation failed:", error);
+    }
     await pruneOldSnapshots(job.repo_id, job.snapshot_id);
     return { jobId: job.id, status: "succeeded" };
   } catch (error) {

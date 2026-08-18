@@ -60,8 +60,58 @@ import {
   consumeChatRateLimit,
 } from "./rate-limit";
 import { rateLimitExceededResponse } from "./rate-limit-contract";
-import { retrieveRepoChunks } from "./retrieval";
+import { retrieveChatContext } from "./overview-context";
+import {
+  buildFallbackOverviewAnswer,
+} from "./overview";
 import { validateQuestion } from "./validate";
+import type { SemanticSearchResult } from "@/lib/ai/search";
+
+function resolveGroundedAnswer(input: {
+  rawText: string;
+  chunks: SemanticSearchResult[];
+  snapshotId: string;
+  overviewQuestion: boolean;
+  repo: Pick<Repo, "owner" | "name" | "description" | "summary">;
+}): {
+  text: string;
+  citations: ReturnType<typeof extractStructuredCitations>;
+  grounded: boolean;
+} {
+  let text = normalizeAnswerCitations(input.rawText, input.chunks, {
+    allowUncited: input.overviewQuestion,
+  });
+
+  if (
+    input.overviewQuestion &&
+    (text === INSUFFICIENT_EVIDENCE_MESSAGE || !text.trim())
+  ) {
+    text = buildFallbackOverviewAnswer({
+      owner: input.repo.owner,
+      name: input.repo.name,
+      description: input.repo.description,
+      summary: input.repo.summary,
+      chunks: input.chunks,
+    });
+  }
+
+  const citations = extractStructuredCitations(
+    text,
+    input.chunks,
+    input.snapshotId,
+  );
+  const grounded = input.overviewQuestion
+    ? Boolean(text.trim()) && text !== INSUFFICIENT_EVIDENCE_MESSAGE
+    : text !== INSUFFICIENT_EVIDENCE_MESSAGE &&
+      citations.length > 0 &&
+      citationsAreValid(citations, input.chunks, input.snapshotId);
+
+  return {
+    text: grounded ? text : INSUFFICIENT_EVIDENCE_MESSAGE,
+    citations: grounded ? citations : [],
+    grounded,
+  };
+}
 
 export { ChatRequestError } from "./errors";
 
@@ -385,10 +435,9 @@ async function handleDemoChat(input: {
 
   const history = (messages as RepoUIMessage[]).slice(-12);
   const admin = createAdminClient();
-  const retrieval = await retrieveRepoChunks({
-    repoId: repo.id,
+  const retrieval = await retrieveChatContext({
+    repo,
     query: question,
-    snapshotId: repo.active_snapshot_id,
     client: admin,
   });
 
@@ -405,6 +454,19 @@ async function handleDemoChat(input: {
   });
 
   if (retrieval.chunks.length === 0) {
+    if (retrieval.overviewQuestion) {
+      const fallback = resolveGroundedAnswer({
+        rawText: "",
+        chunks: retrieval.chunks,
+        snapshotId: repo.active_snapshot_id as string,
+        overviewQuestion: true,
+        repo,
+      });
+      return replayAnswer(fallback.text, history, {
+        snapshotId: repo.active_snapshot_id,
+        citations: fallback.citations,
+      });
+    }
     chatLog({
       event: "chat_no_evidence",
       correlationId,
@@ -426,7 +488,9 @@ async function handleDemoChat(input: {
 
   const result = streamText({
     model: getChatModel(),
-    system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks),
+    system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks, {
+      overviewMode: retrieval.overviewQuestion,
+    }),
     messages: modelMessages,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     abortSignal: request.signal,
@@ -436,23 +500,16 @@ async function handleDemoChat(input: {
       openrouter: openRouterChatProviderOptions(),
     },
     onFinish: ({ text }) => {
-      const normalized = normalizeAnswerCitations(text, retrieval.chunks);
-      const citations = extractStructuredCitations(
-        text,
-        retrieval.chunks,
-        repo.active_snapshot_id as string,
-      );
-      const valid =
-        normalized !== INSUFFICIENT_EVIDENCE_MESSAGE &&
-        citations.length > 0 &&
-        citationsAreValid(
-          citations,
-          retrieval.chunks,
-          repo.active_snapshot_id as string,
-        );
+      const resolved = resolveGroundedAnswer({
+        rawText: text,
+        chunks: retrieval.chunks,
+        snapshotId: repo.active_snapshot_id as string,
+        overviewQuestion: retrieval.overviewQuestion,
+        repo,
+      });
       responseMetadata = {
         snapshotId: repo.active_snapshot_id,
-        citations: valid ? citations : [],
+        citations: resolved.citations,
       };
       chatLog({
         event: "chat_complete",
@@ -461,8 +518,8 @@ async function handleDemoChat(input: {
         repoId: repo.id,
         snapshotId: repo.active_snapshot_id,
         durationMs: Date.now() - started,
-        citationCount: valid ? citations.length : 0,
-        grounded: valid,
+        citationCount: resolved.citations.length,
+        grounded: resolved.grounded,
       });
     },
   });
@@ -628,10 +685,9 @@ export async function handleChatRequest(request: Request): Promise<Response> {
     const persisted = await listChatMessages(chat.id, { limit: 80 });
     const bounded = buildBoundedContext(persisted, chat.summary);
     const history = chatMessagesToUIMessages(bounded.messages);
-    const retrieval = await retrieveRepoChunks({
-      repoId: repo.id,
+    const retrieval = await retrieveChatContext({
+      repo,
       query: question,
-      snapshotId: repo.active_snapshot_id,
     });
 
     chatLog({
@@ -656,11 +712,21 @@ export async function handleChatRequest(request: Request): Promise<Response> {
     });
 
     if (retrieval.chunks.length === 0) {
+      const fallback = retrieval.overviewQuestion
+        ? resolveGroundedAnswer({
+            rawText: "",
+            chunks: retrieval.chunks,
+            snapshotId: repo.active_snapshot_id as string,
+            overviewQuestion: true,
+            repo,
+          })
+        : null;
+      const content = fallback?.text ?? INSUFFICIENT_EVIDENCE_MESSAGE;
       await finalizeAssistant(assistant.id, {
-        content: INSUFFICIENT_EVIDENCE_MESSAGE,
+        content,
         status: "complete",
-        citations: [],
-        error_code: "no_evidence",
+        citations: fallback?.citations ?? [],
+        error_code: fallback?.grounded ? null : "no_evidence",
       });
       void maybeRefreshSummary(chat.id, persisted, bounded.omittedCount);
       chatLog({
@@ -671,9 +737,9 @@ export async function handleChatRequest(request: Request): Promise<Response> {
         chatId: chat.id,
         durationMs: Date.now() - started,
       });
-      return replayAnswer(INSUFFICIENT_EVIDENCE_MESSAGE, history, {
+      return replayAnswer(content, history, {
         snapshotId: repo.active_snapshot_id,
-        citations: [],
+        citations: fallback?.citations ?? [],
       });
     }
 
@@ -707,30 +773,23 @@ export async function handleChatRequest(request: Request): Promise<Response> {
         return;
       }
 
-      const normalized = normalizeAnswerCitations(rawText, retrieval.chunks);
-      const citations = extractStructuredCitations(
+      const resolved = resolveGroundedAnswer({
         rawText,
-        retrieval.chunks,
-        repo.active_snapshot_id as string,
-      );
-      const valid =
-        normalized !== INSUFFICIENT_EVIDENCE_MESSAGE &&
-        citations.length > 0 &&
-        citationsAreValid(
-          citations,
-          retrieval.chunks,
-          repo.active_snapshot_id as string,
-        );
+        chunks: retrieval.chunks,
+        snapshotId: repo.active_snapshot_id as string,
+        overviewQuestion: retrieval.overviewQuestion,
+        repo,
+      });
       responseMetadata = {
         snapshotId: repo.active_snapshot_id,
-        citations: valid ? citations : [],
+        citations: resolved.citations,
       };
 
       await finalizeAssistant(assistant.id, {
-        content: valid ? normalized : INSUFFICIENT_EVIDENCE_MESSAGE,
+        content: resolved.text,
         status: "complete",
-        citations: valid ? citations : [],
-        error_code: valid ? null : "no_evidence",
+        citations: resolved.citations,
+        error_code: resolved.grounded ? null : "no_evidence",
         snapshot_id: repo.active_snapshot_id,
         model: CHAT_MODEL,
       });
@@ -743,8 +802,8 @@ export async function handleChatRequest(request: Request): Promise<Response> {
         chatId: chat.id,
         snapshotId: repo.active_snapshot_id,
         durationMs: Date.now() - started,
-        citationCount: valid ? citations.length : 0,
-        grounded: valid,
+        citationCount: resolved.citations.length,
+        grounded: resolved.grounded,
       });
     };
 
@@ -762,7 +821,9 @@ export async function handleChatRequest(request: Request): Promise<Response> {
 
     const result = streamText({
       model: getChatModel(),
-      system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks),
+      system: buildGroundedSystemPrompt(repo.owner, repo.name, retrieval.chunks, {
+        overviewMode: retrieval.overviewQuestion,
+      }),
       messages: modelMessages,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: request.signal,

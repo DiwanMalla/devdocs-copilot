@@ -1,4 +1,7 @@
+import { isAlwaysIndexPath } from "@/lib/repo/priority-paths";
+
 export const MAX_FILE_BYTES = 200 * 1024;
+export const MAX_PRIORITY_FILE_BYTES = 512 * 1024;
 export const MAX_FILES = 250;
 
 const SKIP_DIR_NAMES = new Set([
@@ -78,6 +81,10 @@ export function shouldSkipPath(path: string): boolean {
   const parts = path.split("/").filter(Boolean);
   if (parts.some((part) => SKIP_DIR_NAMES.has(part.toLowerCase()))) {
     return true;
+  }
+
+  if (isAlwaysIndexPath(path)) {
+    return false;
   }
 
   const filename = parts.at(-1)?.toLowerCase() ?? "";

@@ -75,6 +75,7 @@ export type Repo = {
   last_indexed_at: string | null;
   active_snapshot_id: string | null;
   ingest_lock_until: string | null;
+  summary: string | null;
   created_at: string;
   updated_at: string;
 };

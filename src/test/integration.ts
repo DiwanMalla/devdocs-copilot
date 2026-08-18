@@ -58,6 +58,9 @@ export function canRunSupabaseIntegration(): boolean {
 function createEnvClient(key: string): SupabaseClient {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
     auth: CLIENT_AUTH,
+    realtime: {
+      transport: globalThis.WebSocket,
+    },
   });
 }
 
@@ -241,9 +244,12 @@ export async function createReadyRepoFixture(
 }
 
 export async function deleteFixture(
-  admin: SupabaseClient,
-  fixture: Pick<ReadyRepoFixture, "repoId" | "userId">,
+  admin: SupabaseClient | undefined,
+  fixture: Pick<ReadyRepoFixture, "repoId" | "userId"> | undefined,
 ): Promise<void> {
+  if (!admin || !fixture) {
+    return;
+  }
   if (fixture.repoId) {
     await admin.from("repos").delete().eq("id", fixture.repoId);
   }

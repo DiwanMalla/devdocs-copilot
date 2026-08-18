@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    setupFiles: ["src/test/websocket-polyfill.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
   },
