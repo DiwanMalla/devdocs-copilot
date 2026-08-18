@@ -70,7 +70,10 @@ async function getSearchOutcome(
 export default async function RepoPage({
   params,
   searchParams,
-}: PageProps<"/repos/[owner]/[name]">) {
+}: {
+  params: Promise<{ owner: string; name: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireUser();
   const { owner, name } = await params;
   const query = await searchParams;
